@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: oikonos
+      POSTGRES_USER: oikonos
+      POSTGRES_PASSWORD: oikonos_local_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - oikonos_pgdata:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oikonos -d oikonos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - oikonos_redis:/data
+volumes:
+  oikonos_pgdata:
+  oikonos_redis:

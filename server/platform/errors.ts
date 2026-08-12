@@ -1,0 +1,4 @@
+import type {ErrorRequestHandler,RequestHandler} from 'express';
+export class AppError extends Error{constructor(public status:number,public code:string,message:string,public details?:unknown){super(message)}}
+export const notFound:RequestHandler=(req,_res,next)=>next(new AppError(404,'NOT_FOUND',`No route matches ${req.method} ${req.path}.`));
+export const errorHandler:ErrorRequestHandler=(error,req,res,_next)=>{const known=error instanceof AppError;const status=known?error.status:500;const requestId=res.locals.requestId;console.error(JSON.stringify({level:'error',requestId,method:req.method,path:req.path,code:known?error.code:'INTERNAL_ERROR',message:error.message,stack:process.env.NODE_ENV==='development'?error.stack:undefined}));res.status(status).json({error:{code:known?error.code:'INTERNAL_ERROR',message:known?error.message:'An unexpected error occurred.',details:known?error.details:undefined,requestId}})};
