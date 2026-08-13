@@ -9,8 +9,7 @@ import * as authRepo from "./identity/auth.repository.js";
 load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
-const persistentAuth =
-  process.env.NODE_ENV === "production" && Boolean(process.env.DATABASE_URL);
+const persistentAuth = Boolean(process.env.DATABASE_URL);
 app.use(cors());
 app.use(express.json());
 const auth = async (req: any, res: any, next: any) => {
@@ -522,11 +521,9 @@ app.patch("/api/products/:id", auth, (req, res) => {
     req.body.barcode &&
     get().products.some((x) => x.id !== p.id && x.barcode === req.body.barcode)
   )
-    return res
-      .status(400)
-      .json({
-        message: "That barcode is already assigned to another product.",
-      });
+    return res.status(400).json({
+      message: "That barcode is already assigned to another product.",
+    });
   Object.assign(p, req.body);
   save();
   res.json(p);
