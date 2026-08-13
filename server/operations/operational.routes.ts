@@ -70,7 +70,7 @@ export function createOperationalRouter(auth: RequestHandler) {
         [org],
       );
       const days = await query(
-        `SELECT to_char(d,'Dy') day,COALESCE(sum(s.total),0)::float8 value FROM generate_series(current_date-6,current_date,'1 day') d LEFT JOIN sales s ON s.organization_id=$1 AND s.status='completed' AND s.completed_at::date=d::date GROUP BY d ORDER BY d`,
+        `SELECT to_char(series_date,'Dy') AS "day",COALESCE(sum(s.total),0)::float8 AS "value" FROM generate_series((current_date-6)::date,current_date::date,interval '1 day') AS calendar(series_date) LEFT JOIN sales s ON s.organization_id=$1 AND s.status='completed' AND s.completed_at::date=series_date::date GROUP BY series_date ORDER BY series_date`,
         [org],
       );
       const low = products.rows.filter((p: any) => p.stock <= p.threshold);
