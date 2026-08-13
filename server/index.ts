@@ -12,7 +12,9 @@ const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
 const persistentAuth = Boolean(process.env.DATABASE_URL);
 app.use(cors());
-app.use(express.json());
+// Workbook rows are converted to JSON in the browser before upload. A normal
+// 1,000-row stock workbook can exceed Express's 100 KB default body limit.
+app.use(express.json({ limit: "5mb" }));
 const auth = async (req: any, res: any, next: any) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");

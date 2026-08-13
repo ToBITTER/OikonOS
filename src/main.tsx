@@ -939,6 +939,7 @@ function StockImport({ close, done }: any) {
     }
     setBusy(true);
     setError("");
+    let workbookParsed = false;
     try {
       const sheets = await readXlsxFile(file);
       const requiredHeaders = Object.keys(importHeaders);
@@ -992,6 +993,7 @@ function StockImport({ close, done }: any) {
         throw new Error(
           `The worksheet “${selected.sheet}” has the correct headings but no product rows beneath them.`,
         );
+      workbookParsed = true;
       const result = await api("/products/import/preview", {
         method: "POST",
         body: JSON.stringify({ rows: data }),
@@ -1004,7 +1006,7 @@ function StockImport({ close, done }: any) {
     } catch (e: any) {
       const message = String(e?.message || "The workbook could not be read.");
       setError(
-        /too large|decompress|zip/i.test(message)
+        !workbookParsed && /too large|decompress|zip/i.test(message)
           ? `“${file.name}” is ${measuredSize}, but its internal Excel data could not be decompressed safely. Open it in Excel or Google Sheets, save a fresh .xlsx copy, and upload that copy.`
           : message,
       );
