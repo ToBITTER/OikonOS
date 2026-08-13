@@ -30,7 +30,9 @@ const auth = async (req: any, res: any, next: any) => {
       name: current.name,
       email: current.email,
       role: current.role,
-      organizationId: persistentAuth ? current.organizationId : undefined,
+      organizationId: persistentAuth
+        ? (current as authRepo.AuthUser).organizationId
+        : undefined,
     };
     next();
   } catch {
