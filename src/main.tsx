@@ -919,8 +919,22 @@ function StockImport({ close, done }: any) {
   const choose = async (e: any) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setError("The workbook must be 5 MB or smaller.");
+    const measuredSize =
+      file.size < 1024 * 1024
+        ? `${(file.size / 1024).toFixed(1)} KB`
+        : `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setError(
+        `“${file.name}” is not an .xlsx workbook. Save it as Excel Workbook (.xlsx) and try again.`,
+      );
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError(
+        `“${file.name}” is ${measuredSize}. The maximum workbook size is 10 MB.`,
+      );
+      e.target.value = "";
       return;
     }
     setBusy(true);
@@ -988,7 +1002,12 @@ function StockImport({ close, done }: any) {
       );
       setStage("preview");
     } catch (e: any) {
-      setError(e.message);
+      const message = String(e?.message || "The workbook could not be read.");
+      setError(
+        /too large|decompress|zip/i.test(message)
+          ? `“${file.name}” is ${measuredSize}, but its internal Excel data could not be decompressed safely. Open it in Excel or Google Sheets, save a fresh .xlsx copy, and upload that copy.`
+          : message,
+      );
     } finally {
       setBusy(false);
     }
@@ -1025,7 +1044,7 @@ function StockImport({ close, done }: any) {
           <label className="upload-zone">
             <I.FileSpreadsheet />
             <b>{busy ? "Reading workbook…" : "Choose an Excel workbook"}</b>
-            <span>.xlsx · maximum 5 MB · up to 5,000 products</span>
+            <span>.xlsx · maximum 10 MB · up to 5,000 products</span>
             <input
               disabled={busy}
               type="file"
