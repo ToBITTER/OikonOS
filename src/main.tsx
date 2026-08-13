@@ -4,6 +4,7 @@ import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import * as I from "lucide-react";
 import readXlsxFile from "read-excel-file/browser";
 import "./styles.css";
+import "./mobile.css";
 
 const money = (n = 0) =>
   new Intl.NumberFormat("en-NG", {
@@ -279,7 +280,12 @@ const nav = [
 ];
 function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
   const loc = useLocation(),
-    go = useNavigate();
+    go = useNavigate(),
+    [mobileNav, setMobileNav] = useState(false);
+  const navigate = (path: string) => {
+    go(path);
+    setMobileNav(false);
+  };
   const allowed =
     user.role === "seller"
       ? nav.filter((x) => ["Point of sale", "Sales"].includes(x[0] as string))
@@ -294,7 +300,21 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
       .toUpperCase();
   return (
     <div className="shell">
-      <aside>
+      {mobileNav && (
+        <button
+          className="nav-scrim"
+          aria-label="Close navigation"
+          onClick={() => setMobileNav(false)}
+        />
+      )}
+      <aside className={mobileNav ? "mobile-open" : ""}>
+        <button
+          className="mobile-nav-close"
+          aria-label="Close navigation"
+          onClick={() => setMobileNav(false)}
+        >
+          <I.X />
+        </button>
         <Logo />
         <div className="business">
           <div>{initials}</div>
@@ -309,7 +329,7 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
             <button
               key={path}
               className={page === path ? "active" : ""}
-              onClick={() => go(path)}
+              onClick={() => navigate(path)}
             >
               <Icon />
               {name}
@@ -317,7 +337,7 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
           ))}
         </nav>
         <div className="aside-bottom">
-          <button onClick={() => go("/settings")}>
+          <button onClick={() => navigate("/settings")}>
             <I.Settings />
             Settings
           </button>
@@ -341,7 +361,7 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
       </aside>
       <div className="mobilebar">
         <Logo />
-        <button>
+        <button aria-label="Open navigation" onClick={() => setMobileNav(true)}>
           <I.Menu />
         </button>
       </div>

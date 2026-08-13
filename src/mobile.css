@@ -1,0 +1,456 @@
+.mobile-nav-close,
+.nav-scrim {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  body {
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+  }
+  button,
+  input,
+  select {
+    min-height: 44px;
+  }
+
+  .login {
+    min-height: 100dvh;
+    display: block;
+    background: var(--white);
+  }
+  .login-form {
+    min-height: 100dvh;
+    display: block;
+    padding: max(28px, env(safe-area-inset-top)) 22px
+      max(28px, env(safe-area-inset-bottom));
+  }
+  .login-form form {
+    width: 100%;
+    max-width: 430px;
+    margin: 0 auto;
+  }
+  .mobile-logo {
+    display: block;
+    margin: 4px 0 42px;
+  }
+  .mobile-logo .logo {
+    color: var(--navy);
+  }
+  .login-form h2 {
+    font-size: 29px;
+    line-height: 1.12;
+    margin-top: 12px;
+  }
+  .login-form form > p {
+    font-size: 13px;
+    line-height: 1.55;
+    margin-bottom: 26px;
+  }
+  .login-form label {
+    font-size: 12px;
+    margin: 15px 0;
+  }
+  .login-form input {
+    height: 50px;
+    font-size: 16px;
+  }
+  .password-rules {
+    margin-top: -5px;
+  }
+  .auth-switch {
+    margin-top: 16px;
+    min-height: 50px;
+  }
+
+  .mobilebar {
+    height: calc(64px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 18px 0;
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  .mobilebar .logo {
+    font-size: 18px;
+  }
+  .mobilebar .logo svg {
+    width: 29px;
+    height: 29px;
+  }
+  .mobilebar button {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+  }
+  .nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    border: 0;
+    background: rgba(9, 18, 43, 0.55);
+    backdrop-filter: blur(2px);
+  }
+  .shell > aside {
+    display: flex;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(84vw, 320px);
+    z-index: 40;
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    padding-top: max(25px, env(safe-area-inset-top));
+    box-shadow: 20px 0 50px rgba(5, 14, 38, 0.24);
+  }
+  .shell > aside.mobile-open {
+    transform: translateX(0);
+  }
+  .mobile-nav-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    right: 12px;
+    top: max(14px, env(safe-area-inset-top));
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .mobile-nav-close svg {
+    width: 19px;
+  }
+  .shell > aside > .logo {
+    padding-right: 48px;
+  }
+  .shell nav button,
+  .aside-bottom > button {
+    min-height: 46px;
+    font-size: 14px;
+  }
+
+  .content {
+    width: 100%;
+    margin: 0;
+    padding: 24px 16px max(42px, env(safe-area-inset-bottom));
+  }
+  .page-head {
+    display: flex;
+    gap: 17px;
+    margin-bottom: 22px;
+  }
+  .page-head h1 {
+    font-size: 27px;
+    line-height: 1.12;
+    margin-top: 7px;
+  }
+  .page-head p {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .page-head > .header-actions,
+  .page-head > button {
+    width: 100%;
+  }
+  .header-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .header-actions button {
+    width: 100%;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .metric {
+    padding: 15px;
+    min-width: 0;
+  }
+  .metric > strong {
+    font-size: 20px;
+    overflow-wrap: anywhere;
+    margin: 12px 0 8px;
+  }
+  .metric small {
+    font-size: 9px;
+    line-height: 1.35;
+    display: block;
+  }
+  .payment-breakdown {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .payment-breakdown > div {
+    min-width: 0;
+    padding: 13px;
+    border-right: 1px solid var(--mist);
+    border-bottom: 1px solid var(--mist);
+    display: block;
+  }
+  .payment-breakdown span {
+    margin-bottom: 7px;
+  }
+  .payment-breakdown b {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .grid2,
+  .grid2.bottom {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .grid2.bottom {
+    margin-top: 12px;
+  }
+  .card {
+    padding: 16px;
+  }
+  .chart {
+    min-height: 270px;
+  }
+  .bars {
+    padding-left: 0;
+    padding-right: 0;
+    gap: 3%;
+  }
+  .summary-strip {
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .summary-strip span {
+    padding: 14px;
+    border-right: 1px solid var(--mist);
+  }
+  .access-overview {
+    grid-template-columns: 1fr 1fr;
+  }
+  .access-overview > div {
+    padding: 14px;
+  }
+  .access-overview > div:first-child {
+    grid-column: 1/-1;
+    border-bottom: 1px solid var(--mist);
+  }
+  .permission-guide > div {
+    grid-template-columns: 1fr;
+  }
+  .permission-guide {
+    padding: 16px;
+  }
+
+  .table-card {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 11px;
+  }
+  .table-card table {
+    min-width: 720px;
+  }
+  .movement-card table {
+    min-width: 850px;
+  }
+  .toolbar {
+    min-width: 0;
+    padding: 11px;
+    position: sticky;
+    left: 0;
+    background: #fff;
+  }
+  .toolbar .search {
+    max-width: none;
+    min-width: 0;
+  }
+  .toolbar > .secondary {
+    padding: 0 11px;
+  }
+  .anomaly-row {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .anomaly-row em {
+    text-align: right;
+    max-width: 45%;
+  }
+
+  .overlay {
+    align-items: end;
+    padding: 0;
+    background: rgba(10, 18, 40, 0.55);
+  }
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: 88dvh;
+    overflow-y: auto;
+    border-radius: 18px 18px 0 0;
+    padding: 20px 18px max(20px, env(safe-area-inset-bottom));
+  }
+  .modal-head {
+    position: sticky;
+    top: -20px;
+    background: #fff;
+    z-index: 2;
+    padding: 4px 0 12px;
+  }
+  .modal-head h2 {
+    font-size: 19px;
+  }
+  .form {
+    display: block;
+  }
+  .form label {
+    margin: 13px 0;
+  }
+  .form input,
+  .form select {
+    width: 100%;
+    font-size: 16px;
+  }
+  .form-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+  .form-actions button {
+    width: 100%;
+    padding: 0 10px;
+  }
+  .reconcile-summary {
+    gap: 8px;
+    padding: 12px;
+  }
+  .reconcile-summary b {
+    font-size: 15px;
+  }
+  .review-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+  .review-facts span:last-child {
+    grid-column: 1/-1;
+    border-top: 1px solid var(--mist);
+  }
+  .import-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .import-summary span:nth-child(2) {
+    border-right: 0;
+  }
+  .upload-zone {
+    height: 200px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .pos {
+    margin: -24px -16px max(-42px, calc(-1 * env(safe-area-inset-bottom)));
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+  }
+  .pos-main {
+    padding: 24px 16px 18px;
+    order: 1;
+  }
+  .pos-main .page-head {
+    margin-bottom: 18px;
+  }
+  .pos-search {
+    height: 50px;
+  }
+  .pos-search input {
+    font-size: 16px;
+  }
+  .pos-search kbd {
+    display: none;
+  }
+  .category-chips {
+    overflow-x: auto;
+    white-space: nowrap;
+    margin-right: -16px;
+    padding-right: 16px;
+    scrollbar-width: none;
+  }
+  .category-chips::-webkit-scrollbar {
+    display: none;
+  }
+  .product-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+  .product-tile {
+    min-height: 78px;
+    padding: 13px;
+  }
+  .product-tile > div {
+    width: 44px;
+    height: 44px;
+  }
+  .cart {
+    position: static;
+    order: 2;
+    width: 100%;
+    height: auto;
+    min-height: 360px;
+    border-left: 0;
+    border-top: 1px solid var(--mist);
+    padding: 22px 16px max(24px, env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 30px rgba(17, 32, 72, 0.08);
+  }
+  .cart-items {
+    max-height: none;
+    min-height: 150px;
+  }
+  .empty {
+    min-height: 180px;
+  }
+  .checkout {
+    padding-top: 14px;
+  }
+  .payment-options button {
+    min-height: 66px;
+  }
+  .checkout .wide {
+    min-height: 50px;
+  }
+  .receipt {
+    border-radius: 18px 18px 0 0;
+  }
+}
+
+@media (max-width: 374px) {
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .header-actions {
+    grid-template-columns: 1fr;
+  }
+  .payment-options {
+    grid-template-columns: 1fr;
+  }
+  .form-actions {
+    grid-template-columns: 1fr;
+  }
+  .login-form {
+    padding-left: 17px;
+    padding-right: 17px;
+  }
+}
