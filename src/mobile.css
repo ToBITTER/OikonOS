@@ -21,6 +21,45 @@
   place-items: center;
   flex: none;
 }
+.barcode-field {
+  display: flex;
+  position: relative;
+}
+.barcode-field input {
+  width: 100%;
+  padding-right: 88px;
+}
+.barcode-field button {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  height: 38px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: #edf2fb;
+  color: var(--navy);
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.barcode-field button svg {
+  width: 15px;
+}
+.barcode-captured {
+  display: flex !important;
+  align-items: center;
+  gap: 5px;
+  color: #07815e !important;
+  font-size: 9px !important;
+  margin-top: 6px;
+}
+.barcode-captured svg {
+  width: 12px;
+}
 .scan-trigger svg {
   width: 19px;
 }

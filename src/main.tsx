@@ -1230,7 +1230,8 @@ function ProductForm({ close, done }: any) {
       stock: "",
       threshold: "5",
     }),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [scanning, setScanning] = useState(false);
   const submit = async (e: any) => {
     e.preventDefault();
     try {
@@ -1250,89 +1251,112 @@ function ProductForm({ close, done }: any) {
     }
   };
   return (
-    <Modal title="Add a new product" onClose={close}>
-      <form className="form" onSubmit={submit}>
-        {error && <div className="error">{error}</div>}
-        <label className="full">
-          Product name
-          <input
-            required
-            value={f.name}
-            onChange={(e) => setF({ ...f, name: e.target.value })}
-          />
-        </label>
-        <label>
-          SKU
-          <input
-            required
-            value={f.sku}
-            onChange={(e) => setF({ ...f, sku: e.target.value })}
-          />
-        </label>
-        <label>
-          Barcode (optional)
-          <input
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={f.barcode}
-            onChange={(e) =>
-              setF({ ...f, barcode: e.target.value.replace(/\D/g, "") })
-            }
-            placeholder="Scan or enter barcode"
-          />
-        </label>
-        <label>
-          Category
-          <input
-            required
-            value={f.category}
-            onChange={(e) => setF({ ...f, category: e.target.value })}
-          />
-        </label>
-        <label>
-          Selling price
-          <input
-            required
-            type="number"
-            value={f.price}
-            onChange={(e) => setF({ ...f, price: e.target.value })}
-          />
-        </label>
-        <label>
-          Cost price
-          <input
-            required
-            type="number"
-            value={f.cost}
-            onChange={(e) => setF({ ...f, cost: e.target.value })}
-          />
-        </label>
-        <label>
-          Opening stock
-          <input
-            required
-            type="number"
-            value={f.stock}
-            onChange={(e) => setF({ ...f, stock: e.target.value })}
-          />
-        </label>
-        <label>
-          Low-stock alert
-          <input
-            required
-            type="number"
-            value={f.threshold}
-            onChange={(e) => setF({ ...f, threshold: e.target.value })}
-          />
-        </label>
-        <div className="form-actions full">
-          <button type="button" className="secondary" onClick={close}>
-            Cancel
-          </button>
-          <button className="primary">Add product</button>
-        </div>
-      </form>
-    </Modal>
+    <>
+      <Modal title="Add a new product" onClose={close}>
+        <form className="form" onSubmit={submit}>
+          {error && <div className="error">{error}</div>}
+          <label className="full">
+            Product name
+            <input
+              required
+              value={f.name}
+              onChange={(e) => setF({ ...f, name: e.target.value })}
+            />
+          </label>
+          <label>
+            SKU
+            <input
+              required
+              value={f.sku}
+              onChange={(e) => setF({ ...f, sku: e.target.value })}
+            />
+          </label>
+          <label>
+            Barcode (optional)
+            <div className="barcode-field">
+              <input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={f.barcode}
+                onChange={(e) =>
+                  setF({ ...f, barcode: e.target.value.replace(/\D/g, "") })
+                }
+                placeholder="Enter barcode manually"
+              />
+              <button type="button" onClick={() => setScanning(true)}>
+                <I.ScanBarcode />
+                <span>Scan</span>
+              </button>
+            </div>
+            {f.barcode && (
+              <small className="barcode-captured">
+                <I.CheckCircle2 />
+                Barcode captured: {f.barcode}
+              </small>
+            )}
+          </label>
+          <label>
+            Category
+            <input
+              required
+              value={f.category}
+              onChange={(e) => setF({ ...f, category: e.target.value })}
+            />
+          </label>
+          <label>
+            Selling price
+            <input
+              required
+              type="number"
+              value={f.price}
+              onChange={(e) => setF({ ...f, price: e.target.value })}
+            />
+          </label>
+          <label>
+            Cost price
+            <input
+              required
+              type="number"
+              value={f.cost}
+              onChange={(e) => setF({ ...f, cost: e.target.value })}
+            />
+          </label>
+          <label>
+            Opening stock
+            <input
+              required
+              type="number"
+              value={f.stock}
+              onChange={(e) => setF({ ...f, stock: e.target.value })}
+            />
+          </label>
+          <label>
+            Low-stock alert
+            <input
+              required
+              type="number"
+              value={f.threshold}
+              onChange={(e) => setF({ ...f, threshold: e.target.value })}
+            />
+          </label>
+          <div className="form-actions full">
+            <button type="button" className="secondary" onClick={close}>
+              Cancel
+            </button>
+            <button className="primary">Add product</button>
+          </div>
+        </form>
+      </Modal>
+      {scanning && (
+        <BarcodeScanner
+          close={() => setScanning(false)}
+          onScan={(code) => {
+            setF({ ...f, barcode: code });
+            setScanning(false);
+          }}
+        />
+      )}
+    </>
   );
 }
 function POS() {
