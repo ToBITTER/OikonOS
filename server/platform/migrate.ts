@@ -4,12 +4,13 @@ import path from "node:path";
 import pg from "pg";
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
+  const databaseHost = new URL(process.env.DATABASE_URL).hostname;
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
     ssl:
-      process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: false }
-        : undefined,
+      databaseHost === "localhost" || databaseHost === "127.0.0.1"
+        ? false
+        : { rejectUnauthorized: false },
   });
   await client.connect();
   try {

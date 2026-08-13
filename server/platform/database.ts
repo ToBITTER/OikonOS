@@ -1,13 +1,18 @@
 import pg from "pg";
 import { config } from "./config.js";
 const { Pool } = pg;
+const databaseUrl = config().DATABASE_URL;
+const databaseHost = new URL(databaseUrl).hostname;
+const databaseSsl =
+  databaseHost === "localhost" || databaseHost === "127.0.0.1"
+    ? false
+    : { rejectUnauthorized: false };
 export const pool = new Pool({
-  connectionString: config().DATABASE_URL,
+  connectionString: databaseUrl,
   max: 20,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
-  ssl:
-    config().NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+  ssl: databaseSsl,
 });
 pool.on("error", (error) =>
   console.error(
