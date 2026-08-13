@@ -20,7 +20,7 @@ export type Sale = {
   sellerName: string;
   customerId?: string;
   customerName?: string;
-  payment: "cash" | "card" | "transfer";
+  payment: "cash" | "pos";
   total: number;
   profit: number;
   items: { productId: string; name: string; qty: number; price: number }[];
@@ -48,6 +48,28 @@ export type User = {
   password: string;
   role: "owner" | "manager" | "seller";
 };
+export type StockMovement = {
+  id: string;
+  productId: string;
+  productName: string;
+  type:
+    | "initial"
+    | "sale"
+    | "adjustment"
+    | "restock"
+    | "return"
+    | "damaged"
+    | "expired"
+    | "correction";
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  reason: string;
+  userId: string;
+  userName: string;
+  referenceId?: string;
+  createdAt: string;
+};
 export type DB = {
   business: { name: string; currency: string } | null;
   users: User[];
@@ -55,7 +77,7 @@ export type DB = {
   sales: Sale[];
   customers: Customer[];
   expenses: Expense[];
-  stockMovements: any[];
+  stockMovements: StockMovement[];
 };
 
 const file = path.join(process.cwd(), "server", "data", "db.json");

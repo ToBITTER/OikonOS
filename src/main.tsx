@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import * as I from "lucide-react";
+import readXlsxFile from "read-excel-file/browser";
 import "./styles.css";
 
 const money = (n = 0) =>
@@ -321,7 +322,13 @@ function Dashboard({ user }: any) {
   return (
     <>
       <Header
-        eyebrow={new Date().toLocaleDateString("en-NG", { weekday: "long", day: "numeric", month: "long" }).toUpperCase()}
+        eyebrow={new Date()
+          .toLocaleDateString("en-NG", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })
+          .toUpperCase()}
         title={`Welcome, ${user.name.split(" ")[0]}.`}
         subtitle={`Here is what is happening across ${user.businessName || "your business"} today.`}
         action={
@@ -333,26 +340,48 @@ function Dashboard({ user }: any) {
         }
       />
       <div className="metrics">
-        <Metric
-          label="Revenue"
-          value={money(d.revenue)}
-          icon={I.Banknote}
-        />
+        <Metric label="Revenue" value={money(d.revenue)} icon={I.Banknote} />
         <Metric
           label="Net profit"
           value={money(d.profit)}
           icon={I.TrendingUp}
         />
-        <Metric
-          label="Transactions"
-          value={d.transactions}
-          icon={I.Receipt}
-        />
+        <Metric label="Transactions" value={d.transactions} icon={I.Receipt} />
         <Metric
           label="Average order"
           value={money(d.aov)}
           icon={I.BadgeDollarSign}
         />
+      </div>
+      <div className="payment-breakdown">
+        <div>
+          <span>
+            <I.Banknote />
+            Cash sales
+          </span>
+          <b>{money(d.cashSales)}</b>
+        </div>
+        <div>
+          <span>
+            <I.CreditCard />
+            POS sales
+          </span>
+          <b>{money(d.posSales)}</b>
+        </div>
+        <div>
+          <span>
+            <I.Boxes />
+            Inventory value
+          </span>
+          <b>{money(d.inventoryValue)}</b>
+        </div>
+        <div>
+          <span>
+            <I.PackageX />
+            Out of stock
+          </span>
+          <b>{d.outOfStock}</b>
+        </div>
       </div>
       <div className="insight">
         <div className="insight-icon">
@@ -471,8 +500,18 @@ const CardHead = ({ title, sub }: any) => (
 function Products({ inventory = false }: { inventory?: boolean }) {
   const [items, setItems] = useState<any[]>([]),
     [show, setShow] = useState(false),
+    [importing, setImporting] = useState(false),
+    [adjusting, setAdjusting] = useState<any>(null),
+    [movements, setMovements] = useState<any[]>([]),
+    [anomalies, setAnomalies] = useState<any[]>([]),
     [query, setQuery] = useState("");
-  const load = () => api("/products").then(setItems);
+  const load = () => {
+    api("/products").then(setItems);
+    if (inventory) {
+      api("/stock-movements").then(setMovements);
+      api("/inventory/anomalies").then(setAnomalies);
+    }
+  };
   useEffect(load, []);
   const filtered = items.filter((x) =>
     (x.name + x.sku + x.category).toLowerCase().includes(query.toLowerCase()),
@@ -488,10 +527,16 @@ function Products({ inventory = false }: { inventory?: boolean }) {
             : "Manage your catalog, pricing, and product availability."
         }
         action={
-          <button className="primary" onClick={() => setShow(true)}>
-            <I.Plus />
-            Add product
-          </button>
+          <div className="header-actions">
+            <button className="secondary" onClick={() => setImporting(true)}>
+              <I.FileSpreadsheet />
+              Import stock
+            </button>
+            <button className="primary" onClick={() => setShow(true)}>
+              <I.Plus />
+              Add product
+            </button>
+          </div>
         }
       />
       <div className="summary-strip">
@@ -509,6 +554,33 @@ function Products({ inventory = false }: { inventory?: boolean }) {
           Inventory value
         </span>
       </div>
+      {inventory && anomalies.length > 0 && (
+        <div className="anomaly-panel">
+          <div>
+            <I.TriangleAlert />
+            <span>
+              <b>
+                {anomalies.length} stock{" "}
+                {anomalies.length === 1 ? "event needs" : "events need"} review
+              </b>
+              <small>Review unusual movement without assuming a cause.</small>
+            </span>
+          </div>
+          {anomalies.slice(0, 3).map((a) => (
+            <div className="anomaly-row" key={a.id}>
+              <span>
+                <b>{a.productName}</b>
+                <small>{a.message}</small>
+              </span>
+              <em className={a.severity}>
+                {a.kind === "unusual_sales"
+                  ? `${a.actual} units · ${a.differencePercent}% above normal`
+                  : `${a.actual} units adjusted`}
+              </em>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="table-card">
         <div className="toolbar">
           <div className="search">
@@ -533,6 +605,7 @@ function Products({ inventory = false }: { inventory?: boolean }) {
               <th>Cost</th>
               <th>Stock</th>
               <th>Status</th>
+              {inventory && <th>Action</th>}
             </tr>
           </thead>
           <tbody>
@@ -549,6 +622,17 @@ function Products({ inventory = false }: { inventory?: boolean }) {
                     </span>
                   </div>
                 </td>
+                {inventory && (
+                  <td>
+                    <button
+                      className="table-action"
+                      onClick={() => setAdjusting(p)}
+                    >
+                      <I.Scale />
+                      Reconcile
+                    </button>
+                  </td>
+                )}
                 <td>{p.category}</td>
                 <td className="mono">{money(p.price)}</td>
                 <td className="mono muted">{money(p.cost)}</td>
@@ -578,7 +662,411 @@ function Products({ inventory = false }: { inventory?: boolean }) {
           }}
         />
       )}
+      {adjusting && (
+        <StockAdjustment
+          product={adjusting}
+          close={() => setAdjusting(null)}
+          done={() => {
+            setAdjusting(null);
+            load();
+          }}
+        />
+      )}
+      {importing && (
+        <StockImport
+          close={() => setImporting(false)}
+          done={() => {
+            setImporting(false);
+            load();
+          }}
+        />
+      )}
+      {inventory && (
+        <div className="table-card movement-card">
+          <div className="section-title">
+            <div>
+              <h3>Stock movement history</h3>
+              <p>Every recorded change to product quantity.</p>
+            </div>
+            <I.History />
+          </div>
+          {movements.length ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Movement</th>
+                  <th>Balance</th>
+                  <th>Reason</th>
+                  <th>Recorded by</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movements.slice(0, 30).map((m) => (
+                  <tr key={m.id}>
+                    <td>
+                      <b>{m.productName}</b>
+                    </td>
+                    <td
+                      className={`mono ${m.quantity > 0 ? "positive" : "negative"}`}
+                    >
+                      {m.quantity > 0 ? "+" : ""}
+                      {m.quantity}
+                    </td>
+                    <td className="mono">
+                      {m.previousStock} → {m.newStock}
+                    </td>
+                    <td>
+                      <span className="pill blue">
+                        {m.type.replace("_", " ")}
+                      </span>
+                      <small>{m.reason}</small>
+                    </td>
+                    <td>{m.userName}</td>
+                    <td>
+                      {new Date(m.createdAt).toLocaleString("en-NG", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Empty
+              icon={I.History}
+              title="No stock movements yet"
+              text="Opening stock, sales, and reconciliations will appear here."
+            />
+          )}
+        </div>
+      )}
     </>
+  );
+}
+const importHeaders: Record<string, string> = {
+  "product name": "name",
+  sku: "sku",
+  category: "category",
+  "selling price": "price",
+  "cost price": "cost",
+  quantity: "quantity",
+  "low stock threshold": "threshold",
+};
+function StockImport({ close, done }: any) {
+  const [stage, setStage] = useState<"upload" | "preview" | "confirm">(
+      "upload",
+    ),
+    [preview, setPreview] = useState<any>(null),
+    [validRows, setValidRows] = useState<any[]>([]),
+    [mode, setMode] = useState<"add" | "replace">("add"),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const choose = async (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError("The workbook must be 5 MB or smaller.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const rows = await readXlsxFile(file);
+      if (rows.length < 2)
+        throw new Error("The workbook does not contain any product rows.");
+      const headers = rows[0].map((x) =>
+          String(x ?? "")
+            .trim()
+            .toLowerCase(),
+        ),
+        missing = Object.keys(importHeaders).filter(
+          (h) => !headers.includes(h),
+        );
+      if (missing.length)
+        throw new Error(`Missing required columns: ${missing.join(", ")}.`);
+      const data = rows
+        .slice(1)
+        .filter((r) => r.some((v) => v !== null && v !== ""))
+        .map((r) => {
+          const item: any = {};
+          headers.forEach((h, i) => {
+            const key = importHeaders[h];
+            if (key)
+              item[key] = ["price", "cost", "quantity", "threshold"].includes(
+                key,
+              )
+                ? Number(r[i])
+                : String(r[i] ?? "").trim();
+          });
+          return item;
+        });
+      const result = await api("/products/import/preview", {
+        method: "POST",
+        body: JSON.stringify({ rows: data }),
+      });
+      setPreview(result);
+      setValidRows(
+        result.rows.filter((r: any) => r.valid).map((r: any) => r.data),
+      );
+      setStage("preview");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirm = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/products/import/confirm", {
+        method: "POST",
+        body: JSON.stringify({ mode, rows: validRows }),
+      });
+      done();
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Import products and stock" onClose={close}>
+      <div className="import-flow">
+        <div className="import-steps">
+          <span className="active">1 Upload</span>
+          <span className={stage !== "upload" ? "active" : ""}>2 Validate</span>
+          <span className={stage === "confirm" ? "active" : ""}>3 Confirm</span>
+        </div>
+        {error && (
+          <div className="error">
+            <I.CircleAlert />
+            {error}
+          </div>
+        )}
+        {stage === "upload" && (
+          <label className="upload-zone">
+            <I.FileSpreadsheet />
+            <b>{busy ? "Reading workbook…" : "Choose an Excel workbook"}</b>
+            <span>.xlsx · maximum 5 MB · up to 5,000 products</span>
+            <input
+              disabled={busy}
+              type="file"
+              accept=".xlsx"
+              onChange={choose}
+            />
+          </label>
+        )}
+        {stage === "preview" && preview && (
+          <>
+            <div className="import-summary">
+              <span>
+                <b>{preview.summary.total}</b>Total rows
+              </span>
+              <span>
+                <b>{preview.summary.valid}</b>Ready
+              </span>
+              <span className={preview.summary.invalid ? "negative" : ""}>
+                <b>{preview.summary.invalid}</b>Need correction
+              </span>
+              <span>
+                <b>{preview.summary.conflicts}</b>Existing SKUs
+              </span>
+            </div>
+            <div className="import-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Quantity</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.slice(0, 100).map((r: any) => (
+                    <tr key={r.row}>
+                      <td>{r.row}</td>
+                      <td>{r.data.name || "—"}</td>
+                      <td className="mono">{r.data.sku || "—"}</td>
+                      <td>{r.data.quantity ?? "—"}</td>
+                      <td>
+                        {!r.valid ? (
+                          <span className="pill red" title={r.errors.join(" ")}>
+                            Fix row
+                          </span>
+                        ) : r.conflict ? (
+                          <span className="pill amber">
+                            Existing · {r.conflict.currentStock} in stock
+                          </span>
+                        ) : (
+                          <span className="pill green">New product</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="form-actions">
+              <button className="secondary" onClick={() => setStage("upload")}>
+                Choose another file
+              </button>
+              <button
+                className="primary"
+                disabled={!validRows.length}
+                onClick={() => setStage("confirm")}
+              >
+                Continue with {validRows.length} valid rows
+                <I.ArrowRight />
+              </button>
+            </div>
+          </>
+        )}
+        {stage === "confirm" && (
+          <>
+            <div className="conflict-choice">
+              <h3>How should existing stock be handled?</h3>
+              <p>
+                This applies only to SKUs already in OikonOS. New products will
+                use the uploaded quantity as opening stock.
+              </p>
+              <button
+                className={mode === "add" ? "selected" : ""}
+                onClick={() => setMode("add")}
+              >
+                <I.PlusCircle />
+                <span>
+                  <b>Add uploaded quantity</b>
+                  <small>Uploaded quantity is added to current stock.</small>
+                </span>
+              </button>
+              <button
+                className={mode === "replace" ? "selected" : ""}
+                onClick={() => setMode("replace")}
+              >
+                <I.Replace />
+                <span>
+                  <b>Replace current quantity</b>
+                  <small>Current stock becomes the uploaded quantity.</small>
+                </span>
+              </button>
+            </div>
+            <div className="import-warning">
+              <I.Info />
+              This action will create stock movement records for every quantity
+              change.
+            </div>
+            <div className="form-actions">
+              <button className="secondary" onClick={() => setStage("preview")}>
+                Back to preview
+              </button>
+              <button className="primary" disabled={busy} onClick={confirm}>
+                {busy ? "Importing…" : `Confirm ${validRows.length} rows`}
+                <I.Check />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+function StockAdjustment({ product, close, done }: any) {
+  const [count, setCount] = useState(String(product.stock)),
+    [reason, setReason] = useState(""),
+    [type, setType] = useState("correction"),
+    [error, setError] = useState(""),
+    [saving, setSaving] = useState(false);
+  const difference = Number(count) - product.stock;
+  const submit = async (e: any) => {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/products/${product.id}/adjust-stock`, {
+        method: "POST",
+        body: JSON.stringify({ physicalCount: Number(count), reason, type }),
+      });
+      done();
+    } catch (e: any) {
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title={`Reconcile ${product.name}`} onClose={close}>
+      <form className="form" onSubmit={submit}>
+        <div className="reconcile-summary full">
+          <span>
+            <small>System quantity</small>
+            <b>{product.stock}</b>
+          </span>
+          <I.ArrowRight />
+          <span>
+            <small>Physical count</small>
+            <b>{count || "—"}</b>
+          </span>
+          <span className={difference < 0 ? "negative" : "positive"}>
+            <small>Difference</small>
+            <b>
+              {difference > 0 ? "+" : ""}
+              {Number.isFinite(difference) ? difference : "—"}
+            </b>
+          </span>
+        </div>
+        {error && (
+          <div className="error full">
+            <I.CircleAlert />
+            {error}
+          </div>
+        )}
+        <label>
+          Physical count
+          <input
+            required
+            min="0"
+            type="number"
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+          />
+        </label>
+        <label>
+          Movement type
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="correction">Stock count correction</option>
+            <option value="restock">Restock</option>
+            <option value="return">Return</option>
+            <option value="damaged">Damaged</option>
+            <option value="expired">Expired</option>
+            <option value="adjustment">Other adjustment</option>
+          </select>
+        </label>
+        <label className="full">
+          Reason
+          <input
+            required
+            minLength={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Explain why the physical count differs"
+          />
+        </label>
+        <div className="form-actions full">
+          <button type="button" className="secondary" onClick={close}>
+            Cancel
+          </button>
+          <button className="primary" disabled={saving || difference === 0}>
+            {saving ? "Recording…" : "Record adjustment"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 function ProductForm({ close, done }: any) {
@@ -688,7 +1176,10 @@ function POS() {
   const [products, setProducts] = useState<any[]>([]),
     [cart, setCart] = useState<Record<string, number>>({}),
     [query, setQuery] = useState(""),
-    [pay, setPay] = useState("transfer"),
+    [pay, setPay] = useState<"cash" | "pos">("cash"),
+    [confirming, setConfirming] = useState(false),
+    [processing, setProcessing] = useState(false),
+    [receipt, setReceipt] = useState<any>(null),
     [message, setMessage] = useState("");
   useEffect(() => {
     api("/products").then(setProducts);
@@ -702,6 +1193,9 @@ function POS() {
       setCart((c) => ({ ...c, [p.id]: Math.min(p.stock, (c[p.id] || 0) + 1) }));
   };
   const checkout = async () => {
+    if (processing) return;
+    setProcessing(true);
+    setMessage("");
     try {
       const s = await api("/sales", {
         method: "POST",
@@ -711,11 +1205,13 @@ function POS() {
         }),
       });
       setCart({});
-      setMessage(`${s.number} completed · ${money(s.total)}`);
+      setReceipt(s);
+      setConfirming(false);
       setProducts(await api("/products"));
-      setTimeout(() => setMessage(""), 5000);
     } catch (e: any) {
       setMessage(e.message);
+    } finally {
+      setProcessing(false);
     }
   };
   return (
@@ -774,8 +1270,8 @@ function POS() {
           Current order <span>{rows.reduce((a, x) => a + x.qty, 0)}</span>
         </h2>
         {message && (
-          <div className="success">
-            <I.CheckCircle2 />
+          <div className="error">
+            <I.CircleAlert />
             {message}
           </div>
         )}
@@ -825,23 +1321,128 @@ function POS() {
             <span>Total</span>
             <b>{money(total)}</b>
           </div>
-          <label>
-            Payment method
-            <select value={pay} onChange={(e) => setPay(e.target.value)}>
-              <option value="transfer">Bank transfer</option>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-            </select>
-          </label>
+          <span className="payment-label">Payment method</span>
+          <div className="payment-options">
+            <button
+              className={pay === "cash" ? "selected" : ""}
+              onClick={() => setPay("cash")}
+            >
+              <I.Banknote />
+              <span>
+                <b>Cash</b>
+                <small>Received in cash</small>
+              </span>
+            </button>
+            <button
+              className={pay === "pos" ? "selected" : ""}
+              onClick={() => setPay("pos")}
+            >
+              <I.CreditCard />
+              <span>
+                <b>POS</b>
+                <small>Confirmed on terminal</small>
+              </span>
+            </button>
+          </div>
           <button
             className="primary wide"
-            disabled={!rows.length}
-            onClick={checkout}
+            disabled={!rows.length || processing}
+            onClick={() => setConfirming(true)}
           >
-            Complete sale <I.ArrowRight />
+            Review payment <I.ArrowRight />
           </button>
         </div>
       </aside>
+      {confirming && (
+        <Modal
+          title="Confirm payment received"
+          onClose={() => setConfirming(false)}
+        >
+          <div className="payment-review">
+            <div className="review-icon">
+              <I.ShieldCheck />
+            </div>
+            <p>
+              Confirm that payment has been received. Stock will only be
+              deducted after this confirmation.
+            </p>
+            <div className="review-facts">
+              <span>
+                Items<b>{rows.reduce((a, x) => a + x.qty, 0)}</b>
+              </span>
+              <span>
+                Payment<b>{pay.toUpperCase()}</b>
+              </span>
+              <span>
+                Total<b>{money(total)}</b>
+              </span>
+            </div>
+            {message && (
+              <div className="error">
+                <I.CircleAlert />
+                {message}
+              </div>
+            )}
+            <div className="form-actions">
+              <button
+                className="secondary"
+                onClick={() => setConfirming(false)}
+              >
+                Go back
+              </button>
+              <button
+                className="primary"
+                disabled={processing}
+                onClick={checkout}
+              >
+                {processing ? "Recording sale…" : "Confirm payment"}
+                <I.Check />
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {receipt && (
+        <div className="overlay">
+          <div className="modal receipt">
+            <div className="receipt-success">
+              <div>
+                <I.Check />
+              </div>
+              <span>PAYMENT CONFIRMED</span>
+              <h2>Sale completed</h2>
+              <p>Stock and sales records have been updated.</p>
+            </div>
+            <div className="receipt-details">
+              <span>
+                Transaction<b>{receipt.number}</b>
+              </span>
+              <span>
+                Payment method<b>{receipt.payment.toUpperCase()}</b>
+              </span>
+              <span>
+                Items sold
+                <b>
+                  {receipt.items.reduce((a: number, x: any) => a + x.qty, 0)}
+                </b>
+              </span>
+              <span>
+                Total paid<strong>{money(receipt.total)}</strong>
+              </span>
+            </div>
+            <button
+              className="primary wide"
+              onClick={() => {
+                setReceipt(null);
+                setQuery("");
+                setPay("cash");
+              }}
+            >
+              Start next sale <I.ArrowRight />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
