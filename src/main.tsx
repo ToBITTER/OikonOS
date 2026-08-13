@@ -75,12 +75,18 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
   const [register, setRegister] = useState(false),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState(""),
+    [showPassword, setShowPassword] = useState(false),
     [name, setName] = useState(""),
     [businessName, setBusinessName] = useState(""),
     [loading, setLoading] = useState(false),
     [error, setError] = useState("");
   const submit = async (e: any) => {
     e.preventDefault();
+    if (register && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -88,8 +94,8 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
         method: "POST",
         body: JSON.stringify(
           register
-            ? { email, password, name, businessName }
-            : { email, password },
+            ? { email: email.trim(), password, name, businessName }
+            : { email: email.trim(), password },
         ),
       });
       const current = {
@@ -173,14 +179,69 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
           </label>
           <label>
             Password
-            <input
-              required
-              minLength={register ? 8 : 1}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-            />
+            <div className="password-field">
+              <input
+                required
+                minLength={register ? 8 : 1}
+                maxLength={128}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type={showPassword ? "text" : "password"}
+                autoComplete={register ? "new-password" : "current-password"}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <I.EyeOff /> : <I.Eye />}
+              </button>
+            </div>
           </label>
+          {register && (
+            <>
+              <div className="password-rules">
+                <span className={password.length >= 8 ? "met" : ""}>
+                  <I.Check />8 characters
+                </span>
+                <span className={/[A-Z]/.test(password) ? "met" : ""}>
+                  <I.Check />
+                  Uppercase
+                </span>
+                <span className={/[a-z]/.test(password) ? "met" : ""}>
+                  <I.Check />
+                  Lowercase
+                </span>
+                <span className={/[0-9]/.test(password) ? "met" : ""}>
+                  <I.Check />
+                  Number
+                </span>
+              </div>
+              <label>
+                Confirm password
+                <div className="password-field">
+                  <input
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                  />
+                </div>
+                {confirmPassword && (
+                  <small
+                    className={
+                      password === confirmPassword ? "match" : "mismatch"
+                    }
+                  >
+                    {password === confirmPassword
+                      ? "Passwords match"
+                      : "Passwords do not match"}
+                  </small>
+                )}
+              </label>
+            </>
+          )}
           <button className="primary wide" disabled={loading}>
             {loading
               ? "Please wait…"

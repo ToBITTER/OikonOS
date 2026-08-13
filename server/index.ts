@@ -16,12 +16,10 @@ const auth = (req: any, res: any, next: any) => {
     const claims: any = jwt.verify(token, secret);
     const current = get().users.find((u) => u.id === claims.id);
     if (!current || current.status !== "active")
-      return res
-        .status(401)
-        .json({
-          message:
-            "This account no longer has access. Contact your business owner.",
-        });
+      return res.status(401).json({
+        message:
+          "This account no longer has access. Contact your business owner.",
+      });
     req.user = {
       id: current.id,
       name: current.name,
@@ -39,19 +37,32 @@ const fail = (res: any, e: any) =>
   res.status(400).json({
     message: e?.issues?.[0]?.message || e.message || "Something went wrong.",
   });
+const passwordSchema = z
+  .string()
+  .min(8, "Password must contain at least 8 characters.")
+  .max(128, "Password cannot exceed 128 characters.")
+  .refine((v) => /[a-z]/.test(v), "Password must include a lowercase letter.")
+  .refine((v) => /[A-Z]/.test(v), "Password must include an uppercase letter.")
+  .refine((v) => /[0-9]/.test(v), "Password must include a number.");
 app.post("/api/auth/login", (req, res) => {
   const parsed = z
-    .object({ email: z.string().email(), password: z.string().min(1) })
+    .object({
+      email: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .email("Enter a valid email address."),
+      password: z.string().min(1, "Enter your password.").max(128),
+    })
     .safeParse(req.body);
   if (!parsed.success) return fail(res, parsed.error);
   const u = get().users.find(
     (x) => x.email.toLowerCase() === parsed.data.email.toLowerCase(),
   );
-  if (
-    !u ||
-    u.status === "inactive" ||
-    !bcrypt.compareSync(parsed.data.password, u.password)
-  )
+  const passwordIsValid =
+    Boolean(u?.password?.startsWith("$2")) &&
+    bcrypt.compareSync(parsed.data.password, u!.password);
+  if (!u || u.status === "inactive" || !passwordIsValid)
     return res.status(401).json({ message: "Email or password is incorrect." });
   const user = { id: u.id, name: u.name, email: u.email, role: u.role };
   res.json({
@@ -66,8 +77,12 @@ app.post("/api/auth/register", (req, res) => {
       .object({
         name: z.string().min(2),
         businessName: z.string().min(2),
-        email: z.string().email(),
-        password: z.string().min(8),
+        email: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .email("Enter a valid email address."),
+        password: passwordSchema,
       })
       .parse(req.body);
     const d = get();
@@ -123,9 +138,13 @@ app.post("/api/staff", auth, (req: any, res) => {
     const x = z
         .object({
           name: z.string().min(2),
-          email: z.string().email(),
+          email: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .email("Enter a valid email address."),
           role: z.enum(["manager", "seller"]),
-          temporaryPassword: z.string().min(8),
+          temporaryPassword: passwordSchema,
         })
         .parse(req.body),
       d = get();
@@ -155,11 +174,9 @@ app.patch("/api/staff/:id", auth, (req: any, res) => {
         .status(403)
         .json({ message: "Only the business owner can change staff access." });
     if (req.params.id === req.user.id)
-      return res
-        .status(400)
-        .json({
-          message: "You cannot change or deactivate your own owner account.",
-        });
+      return res.status(400).json({
+        message: "You cannot change or deactivate your own owner account.",
+      });
     const x = z
         .object({
           role: z.enum(["manager", "seller"]).optional(),
