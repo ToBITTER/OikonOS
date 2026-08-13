@@ -30,6 +30,7 @@ const auth = async (req: any, res: any, next: any) => {
       name: current.name,
       email: current.email,
       role: current.role,
+      organizationId: persistentAuth ? current.organizationId : undefined,
     };
     next();
   } catch {
@@ -49,7 +50,6 @@ const passwordSchema = z
   .refine((v) => /[a-z]/.test(v), "Password must include a lowercase letter.")
   .refine((v) => /[A-Z]/.test(v), "Password must include an uppercase letter.")
   .refine((v) => /[0-9]/.test(v), "Password must include a number.");
-if (persistentAuth) app.use("/api", createOperationalRouter(auth));
 app.post("/api/auth/login", async (req, res) => {
   const parsed = z
     .object({
@@ -150,9 +150,19 @@ app.post("/api/auth/register", async (req, res) => {
     fail(res, e);
   }
 });
-app.get("/api/me", auth, (req: any, res) =>
-  res.json({ user: req.user, business: get().business }),
-);
+app.get("/api/me", auth, async (req: any, res) => {
+  if (persistentAuth) {
+    const current = await authRepo.findById(
+      req.user.id,
+      req.user.organizationId,
+    );
+    return res.json({
+      user: req.user,
+      business: { name: current?.businessName, currency: "NGN" },
+    });
+  }
+  res.json({ user: req.user, business: get().business });
+});
 app.get("/api/staff", auth, async (req: any, res) => {
   if (req.user.role !== "owner" && req.user.role !== "manager")
     return res
@@ -257,6 +267,10 @@ app.patch("/api/staff/:id", auth, async (req: any, res) => {
     fail(res, e);
   }
 });
+// Public authentication and protected staff routes must be registered before
+// this tenant-wide operational router. Otherwise its auth middleware intercepts
+// sign-in and registration requests before they reach their public handlers.
+if (persistentAuth) app.use("/api", createOperationalRouter(auth));
 app.get("/api/dashboard", auth, (_req, res) => {
   const d = get();
   const month = Date.now() - 30 * 86400000;
@@ -783,15 +797,13 @@ app.use("/api", (_q, res) =>
 app.use((error: any, _req: any, res: any, _next: any) => {
   console.error("API error", error);
   const constraint = error?.code === "23505";
-  res
-    .status(constraint ? 409 : 400)
-    .json({
-      message: constraint
-        ? "A record with this value already exists."
-        : error?.issues?.[0]?.message ||
-          error?.message ||
-          "Something went wrong.",
-    });
+  res.status(constraint ? 409 : 400).json({
+    message: constraint
+      ? "A record with this value already exists."
+      : error?.issues?.[0]?.message ||
+        error?.message ||
+        "Something went wrong.",
+  });
 });
 app.use(express.static(path.join(process.cwd(), "dist")));
 app.get(/^(?!\/api).*/, (_req, res) =>
