@@ -13,7 +13,21 @@ app.use(express.json());
 const auth = (req: any, res: any, next: any) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
-    req.user = jwt.verify(token, secret);
+    const claims: any = jwt.verify(token, secret);
+    const current = get().users.find((u) => u.id === claims.id);
+    if (!current || current.status !== "active")
+      return res
+        .status(401)
+        .json({
+          message:
+            "This account no longer has access. Contact your business owner.",
+        });
+    req.user = {
+      id: current.id,
+      name: current.name,
+      email: current.email,
+      role: current.role,
+    };
     next();
   } catch {
     return res
@@ -33,7 +47,11 @@ app.post("/api/auth/login", (req, res) => {
   const u = get().users.find(
     (x) => x.email.toLowerCase() === parsed.data.email.toLowerCase(),
   );
-  if (!u || !bcrypt.compareSync(parsed.data.password, u.password))
+  if (
+    !u ||
+    u.status === "inactive" ||
+    !bcrypt.compareSync(parsed.data.password, u.password)
+  )
     return res.status(401).json({ message: "Email or password is incorrect." });
   const user = { id: u.id, name: u.name, email: u.email, role: u.role };
   res.json({
@@ -61,6 +79,8 @@ app.post("/api/auth/register", (req, res) => {
       email: x.email.toLowerCase(),
       password: bcrypt.hashSync(x.password, 12),
       role: "owner" as const,
+      status: "active" as const,
+      createdAt: new Date().toISOString(),
     };
     d.users.push(user);
     d.business = { name: x.businessName, currency: "NGN" };
@@ -83,6 +103,87 @@ app.post("/api/auth/register", (req, res) => {
 app.get("/api/me", auth, (req: any, res) =>
   res.json({ user: req.user, business: get().business }),
 );
+app.get("/api/staff", auth, (req: any, res) => {
+  if (req.user.role !== "owner" && req.user.role !== "manager")
+    return res
+      .status(403)
+      .json({ message: "You do not have permission to manage staff." });
+  res.json(
+    get()
+      .users.map(({ password, ...user }) => user)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+});
+app.post("/api/staff", auth, (req: any, res) => {
+  try {
+    if (req.user.role !== "owner")
+      return res
+        .status(403)
+        .json({ message: "Only the business owner can add staff." });
+    const x = z
+        .object({
+          name: z.string().min(2),
+          email: z.string().email(),
+          role: z.enum(["manager", "seller"]),
+          temporaryPassword: z.string().min(8),
+        })
+        .parse(req.body),
+      d = get();
+    if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
+      throw new Error("A staff account with this email already exists.");
+    const user = {
+      id: id(),
+      name: x.name,
+      email: x.email.toLowerCase(),
+      password: bcrypt.hashSync(x.temporaryPassword, 12),
+      role: x.role,
+      status: "active" as const,
+      createdAt: new Date().toISOString(),
+    };
+    d.users.push(user);
+    save();
+    const { password, ...result } = user;
+    res.status(201).json(result);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+app.patch("/api/staff/:id", auth, (req: any, res) => {
+  try {
+    if (req.user.role !== "owner")
+      return res
+        .status(403)
+        .json({ message: "Only the business owner can change staff access." });
+    if (req.params.id === req.user.id)
+      return res
+        .status(400)
+        .json({
+          message: "You cannot change or deactivate your own owner account.",
+        });
+    const x = z
+        .object({
+          role: z.enum(["manager", "seller"]).optional(),
+          status: z.enum(["active", "inactive"]).optional(),
+        })
+        .refine((v) => v.role || v.status, {
+          message: "Choose a role or access status to update.",
+        })
+        .parse(req.body),
+      user = get().users.find((u) => u.id === req.params.id);
+    if (!user)
+      return res.status(404).json({ message: "Staff member not found." });
+    if (user.role === "owner")
+      return res
+        .status(400)
+        .json({ message: "Owner access cannot be changed here." });
+    Object.assign(user, x);
+    save();
+    const { password, ...result } = user;
+    res.json(result);
+  } catch (e) {
+    fail(res, e);
+  }
+});
 app.get("/api/dashboard", auth, (_req, res) => {
   const d = get();
   const month = Date.now() - 30 * 86400000;

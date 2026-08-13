@@ -47,6 +47,8 @@ export type User = {
   email: string;
   password: string;
   role: "owner" | "manager" | "seller";
+  status: "active" | "inactive";
+  createdAt: string;
 };
 export type StockMovement = {
   id: string;
@@ -99,7 +101,14 @@ export function load() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     db = emptyDatabase();
     save();
-  } else db = JSON.parse(fs.readFileSync(file, "utf8"));
+  } else {
+    db = JSON.parse(fs.readFileSync(file, "utf8"));
+    db.users = db.users.map((u) => ({
+      ...u,
+      status: u.status || "active",
+      createdAt: u.createdAt || new Date().toISOString(),
+    }));
+  }
   return db;
 }
 export function get() {

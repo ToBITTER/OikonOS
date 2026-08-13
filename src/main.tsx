@@ -1704,6 +1704,328 @@ function Reports() {
     </>
   );
 }
+function Settings({ user }: any) {
+  const [staff, setStaff] = useState<any[]>([]),
+    [show, setShow] = useState(false),
+    [error, setError] = useState("");
+  const load = () =>
+    api("/staff")
+      .then(setStaff)
+      .catch((e: any) => setError(e.message));
+  useEffect(load, []);
+  const update = async (member: any, changes: any) => {
+    setError("");
+    try {
+      await api(`/staff/${member.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(changes),
+      });
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+  return (
+    <>
+      <Header
+        eyebrow="BUSINESS SETTINGS"
+        title="Staff & access"
+        subtitle="Control who can enter your workspace and what they are allowed to do."
+        action={
+          user.role === "owner" ? (
+            <button className="primary" onClick={() => setShow(true)}>
+              <I.UserPlus />
+              Add staff member
+            </button>
+          ) : undefined
+        }
+      />
+      {error && (
+        <div className="error">
+          <I.CircleAlert />
+          {error}
+        </div>
+      )}
+      <div className="access-overview">
+        <div>
+          <I.ShieldCheck />
+          <span>
+            <b>Role-based access</b>
+            <small>
+              Sellers focus on POS and their sales. Managers can monitor
+              operations.
+            </small>
+          </span>
+        </div>
+        <div>
+          <b>{staff.filter((x) => x.status === "active").length}</b>
+          <span>Active personnel</span>
+        </div>
+        <div>
+          <b>
+            {
+              staff.filter((x) => x.role === "seller" && x.status === "active")
+                .length
+            }
+          </b>
+          <span>Active sellers</span>
+        </div>
+      </div>
+      <div className="table-card">
+        <div className="section-title">
+          <div>
+            <h3>Business personnel</h3>
+            <p>
+              Access changes take effect on the member's next request or
+              sign-in.
+            </p>
+          </div>
+          <I.Users />
+        </div>
+        {staff.length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Joined</th>
+                <th>Access</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staff.map((member) => (
+                <tr key={member.id}>
+                  <td>
+                    <div className="staff-person">
+                      <div>
+                        {member.name
+                          .split(" ")
+                          .map((x: string) => x[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+                      <span>
+                        <b>
+                          {member.name}
+                          {member.id === user.id && <em>You</em>}
+                        </b>
+                        <small>{member.email}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    {member.role === "owner" ? (
+                      <span className="pill blue">Owner</span>
+                    ) : (
+                      <select
+                        className="role-select"
+                        disabled={
+                          user.role !== "owner" || member.status === "inactive"
+                        }
+                        value={member.role}
+                        onChange={(e) =>
+                          update(member, { role: e.target.value })
+                        }
+                      >
+                        <option value="manager">Manager</option>
+                        <option value="seller">Seller</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={`pill ${member.status === "active" ? "green" : "red"}`}
+                    >
+                      {member.status === "active" ? "Active" : "Deactivated"}
+                    </span>
+                  </td>
+                  <td>
+                    {new Date(member.createdAt).toLocaleDateString("en-NG", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td>
+                    {member.role === "owner" ? (
+                      <span className="owner-lock">
+                        <I.Lock />
+                        Protected
+                      </span>
+                    ) : user.role === "owner" ? (
+                      <button
+                        className={`table-action ${member.status === "active" ? "deactivate" : ""}`}
+                        onClick={() =>
+                          update(member, {
+                            status:
+                              member.status === "active"
+                                ? "inactive"
+                                : "active",
+                          })
+                        }
+                      >
+                        {member.status === "active" ? (
+                          <>
+                            <I.UserX />
+                            Deactivate
+                          </>
+                        ) : (
+                          <>
+                            <I.UserCheck />
+                            Reactivate
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <Empty
+            icon={I.Users}
+            title="No staff members yet"
+            text="Add a seller or manager to give them secure access."
+          />
+        )}
+      </div>
+      <div className="permission-guide">
+        <h3>What each role can do</h3>
+        <div>
+          <span>
+            <I.Crown />
+            <b>Owner</b>
+            <small>
+              Complete control, including staff access and business settings.
+            </small>
+          </span>
+          <span>
+            <I.BriefcaseBusiness />
+            <b>Manager</b>
+            <small>
+              Monitor products, inventory, sales, customers, and operations.
+            </small>
+          </span>
+          <span>
+            <I.ScanLine />
+            <b>Seller</b>
+            <small>
+              Use the point of sale, find products, and view permitted sales.
+            </small>
+          </span>
+        </div>
+      </div>
+      {show && (
+        <StaffForm
+          close={() => setShow(false)}
+          done={() => {
+            setShow(false);
+            load();
+          }}
+        />
+      )}
+    </>
+  );
+}
+function StaffForm({ close, done }: any) {
+  const [f, setF] = useState({
+      name: "",
+      email: "",
+      role: "seller",
+      temporaryPassword: "",
+    }),
+    [error, setError] = useState(""),
+    [saving, setSaving] = useState(false),
+    [visible, setVisible] = useState(false);
+  const submit = async (e: any) => {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api("/staff", { method: "POST", body: JSON.stringify(f) });
+      done();
+    } catch (e: any) {
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title="Add staff member" onClose={close}>
+      <form className="form" onSubmit={submit}>
+        {error && (
+          <div className="error full">
+            <I.CircleAlert />
+            {error}
+          </div>
+        )}
+        <label className="full">
+          Full name
+          <input
+            required
+            value={f.name}
+            onChange={(e) => setF({ ...f, name: e.target.value })}
+          />
+        </label>
+        <label className="full">
+          Email address
+          <input
+            required
+            type="email"
+            value={f.email}
+            onChange={(e) => setF({ ...f, email: e.target.value })}
+          />
+        </label>
+        <label>
+          Role
+          <select
+            value={f.role}
+            onChange={(e) => setF({ ...f, role: e.target.value })}
+          >
+            <option value="seller">Seller</option>
+            <option value="manager">Manager</option>
+          </select>
+        </label>
+        <label>
+          Temporary password
+          <div className="password-field">
+            <input
+              required
+              minLength={8}
+              type={visible ? "text" : "password"}
+              value={f.temporaryPassword}
+              onChange={(e) =>
+                setF({ ...f, temporaryPassword: e.target.value })
+              }
+            />
+            <button type="button" onClick={() => setVisible(!visible)}>
+              {visible ? <I.EyeOff /> : <I.Eye />}
+            </button>
+          </div>
+        </label>
+        <div className="staff-note full">
+          <I.Mail />
+          Give this email and temporary password to the staff member securely.
+          Email invitations will be sent automatically when delivery is
+          configured.
+        </div>
+        <div className="form-actions full">
+          <button type="button" className="secondary" onClick={close}>
+            Cancel
+          </button>
+          <button className="primary" disabled={saving}>
+            {saving ? "Adding person…" : "Add staff member"}
+            <I.UserPlus />
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 const Loader = () => (
   <div className="loader">
     <span></span>
@@ -1721,6 +2043,7 @@ function Page({ path, user }: any) {
   if (path === "/customers") return <SimpleList type="customers" />;
   if (path === "/expenses") return <SimpleList type="expenses" />;
   if (path === "/reports") return <Reports />;
+  if (path === "/settings") return <Settings user={user} />;
   return <Reports />;
 }
 function App() {
