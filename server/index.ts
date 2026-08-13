@@ -6,6 +6,7 @@ import { z } from "zod";
 import path from "node:path";
 import { get, id, load, save } from "./store.js";
 import * as authRepo from "./identity/auth.repository.js";
+import { createOperationalRouter } from "./operations/operational.routes.js";
 load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
@@ -48,6 +49,7 @@ const passwordSchema = z
   .refine((v) => /[a-z]/.test(v), "Password must include a lowercase letter.")
   .refine((v) => /[A-Z]/.test(v), "Password must include an uppercase letter.")
   .refine((v) => /[0-9]/.test(v), "Password must include a number.");
+if (persistentAuth) app.use("/api", createOperationalRouter(auth));
 app.post("/api/auth/login", async (req, res) => {
   const parsed = z
     .object({
@@ -778,6 +780,19 @@ app.post("/api/expenses", auth, (req, res) => {
 app.use("/api", (_q, res) =>
   res.status(404).json({ message: "Endpoint not found." }),
 );
+app.use((error: any, _req: any, res: any, _next: any) => {
+  console.error("API error", error);
+  const constraint = error?.code === "23505";
+  res
+    .status(constraint ? 409 : 400)
+    .json({
+      message: constraint
+        ? "A record with this value already exists."
+        : error?.issues?.[0]?.message ||
+          error?.message ||
+          "Something went wrong.",
+    });
+});
 app.use(express.static(path.join(process.cwd(), "dist")));
 app.get(/^(?!\/api).*/, (_req, res) =>
   res.sendFile(path.join(process.cwd(), "dist", "index.html")),
