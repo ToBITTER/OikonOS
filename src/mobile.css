@@ -2,6 +2,63 @@
 .nav-scrim {
   display: none;
 }
+.crash-screen {
+  min-height: 100dvh;
+  background: var(--paper);
+  padding: 42px;
+  display: flex;
+  flex-direction: column;
+}
+.crash-screen > .logo {
+  color: var(--navy);
+}
+.crash-screen > div {
+  margin: auto;
+  max-width: 560px;
+  text-align: center;
+}
+.crash-screen h1 {
+  font-size: 36px;
+  margin: 12px 0;
+}
+.crash-screen p,
+.screen-error p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.crash-screen details {
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.crash-screen code {
+  display: block;
+  margin-top: 8px;
+}
+.crash-screen > div > div {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+}
+.screen-error {
+  min-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+}
+.screen-error > svg {
+  width: 38px;
+  color: var(--peri);
+}
+.screen-error h2 {
+  font-size: 20px;
+}
+.screen-error button {
+  margin-top: 8px;
+}
 
 @media (max-width: 760px) {
   html,
@@ -14,6 +71,19 @@
   body {
     font-size: 14px;
     -webkit-text-size-adjust: 100%;
+  }
+  .crash-screen {
+    padding: max(24px, env(safe-area-inset-top)) 20px
+      max(24px, env(safe-area-inset-bottom));
+  }
+  .crash-screen h1 {
+    font-size: 28px;
+  }
+  .crash-screen > div > div {
+    display: grid;
+  }
+  .crash-screen button {
+    width: 100%;
   }
   button,
   input,

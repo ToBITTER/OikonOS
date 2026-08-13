@@ -14,16 +14,37 @@ const money = (n = 0) =>
   }).format(n);
 const api = async (path: string, options: any = {}) => {
   const token = localStorage.getItem("token");
-  const r = await fetch("/api" + path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.message);
+  let r: Response;
+  try {
+    r = await fetch("/api" + path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new Error(
+      "OikonOS could not reach the server. Check your connection and try again.",
+    );
+  }
+  const data = (r.headers.get("content-type") || "").includes(
+    "application/json",
+  )
+    ? await r.json()
+    : null;
+  if (r.status === 401 && token) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.dispatchEvent(new Event("oikonos:session-expired"));
+  }
+  if (!r.ok)
+    throw new Error(
+      data?.message ||
+        data?.error?.message ||
+        `The request failed (${r.status}).`,
+    );
   return data;
 };
 const Logo = ({ compact = false }: { compact?: boolean }) => (
@@ -36,6 +57,49 @@ const Logo = ({ compact = false }: { compact?: boolean }) => (
     {!compact && <span>OikonOS</span>}
   </div>
 );
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("OikonOS screen error", error, info.componentStack);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <main className="crash-screen">
+        <Logo />
+        <div>
+          <span className="eyebrow">SCREEN RECOVERY</span>
+          <h1>This screen could not load.</h1>
+          <p>Your data is safe. Reload the screen or return to the overview.</p>
+          <details>
+            <summary>Technical detail</summary>
+            <code>{this.state.error.message}</code>
+          </details>
+          <div>
+            <button
+              className="primary"
+              onClick={() => window.location.assign("/")}
+            >
+              Return to overview
+            </button>
+            <button
+              className="secondary"
+              onClick={() => window.location.reload()}
+            >
+              Reload OikonOS
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+}
 const Empty = ({
   icon: Icon = I.Inbox,
   title,
@@ -394,10 +458,14 @@ function Header({
   );
 }
 function Dashboard({ user }: any) {
-  const [d, setD] = useState<any>();
+  const [d, setD] = useState<any>(),
+    [loadError, setLoadError] = useState("");
   useEffect(() => {
-    api("/dashboard").then(setD);
+    api("/dashboard")
+      .then(setD)
+      .catch((e: any) => setLoadError(e.message));
   }, []);
+  if (loadError) return <ScreenError message={loadError} />;
   if (!d) return <Loader />;
   const max = Math.max(...d.byDay.map((x: any) => x.value), 1);
   return (
@@ -2113,6 +2181,16 @@ const Loader = () => (
     <p>Bringing your business into view…</p>
   </div>
 );
+const ScreenError = ({ message }: { message: string }) => (
+  <div className="screen-error">
+    <I.CloudOff />
+    <h2>We could not load this screen</h2>
+    <p>{message}</p>
+    <button className="primary" onClick={() => window.location.reload()}>
+      Try again
+    </button>
+  </div>
+);
 function Page({ path, user }: any) {
   if (user.role === "seller" && !["/pos", "/sales"].includes(path))
     return <POS />;
@@ -2135,6 +2213,11 @@ function App() {
       return null;
     }
   });
+  useEffect(() => {
+    const expired = () => setUser(null);
+    window.addEventListener("oikonos:session-expired", expired);
+    return () => window.removeEventListener("oikonos:session-expired", expired);
+  }, []);
   if (!user) return <Login onLogin={setUser} />;
   return (
     <Shell
@@ -2147,7 +2230,9 @@ function App() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  <BrowserRouter>
-    <App />
-  </BrowserRouter>,
+  <AppErrorBoundary>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </AppErrorBoundary>,
 );
