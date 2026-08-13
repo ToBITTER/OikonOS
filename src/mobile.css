@@ -9,6 +9,150 @@
   display: flex;
   flex-direction: column;
 }
+.scan-trigger {
+  border: 0;
+  background: var(--navy);
+  color: #fff;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.scan-trigger svg {
+  width: 19px;
+}
+.scanner-overlay {
+  z-index: 70;
+  background: #081126;
+}
+.scanner-sheet {
+  width: min(520px, 100%);
+  background: #fff;
+  border-radius: 18px;
+  overflow: hidden;
+}
+.scanner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+}
+.scanner-head span {
+  font: 600 9px "IBM Plex Mono";
+  color: var(--peri);
+}
+.scanner-head h2 {
+  font-size: 21px;
+  margin-top: 4px;
+}
+.scanner-head button {
+  border: 0;
+  background: var(--paper);
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+.scanner-head svg {
+  width: 18px;
+}
+.camera-view {
+  height: 420px;
+  background: #050a13;
+  position: relative;
+  overflow: hidden;
+}
+.camera-view video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.camera-view > p {
+  position: absolute;
+  bottom: 18px;
+  left: 20px;
+  right: 20px;
+  color: #fff;
+  background: rgba(3, 9, 20, 0.7);
+  padding: 10px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 10px;
+}
+.scan-frame {
+  position: absolute;
+  inset: 22% 10% 30%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.scan-frame i {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: var(--yellow);
+  border-style: solid;
+}
+.scan-frame i:nth-child(1) {
+  left: -2px;
+  top: -2px;
+  border-width: 3px 0 0 3px;
+}
+.scan-frame i:nth-child(2) {
+  right: -2px;
+  top: -2px;
+  border-width: 3px 3px 0 0;
+}
+.scan-frame i:nth-child(3) {
+  right: -2px;
+  bottom: -2px;
+  border-width: 0 3px 3px 0;
+}
+.scan-frame i:nth-child(4) {
+  left: -2px;
+  bottom: -2px;
+  border-width: 0 0 3px 3px;
+}
+.scan-frame span {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 2px;
+  background: var(--yellow);
+  animation: scanline 2s ease-in-out infinite;
+}
+@keyframes scanline {
+  0%,
+  100% {
+    transform: translateY(-70px);
+  }
+  50% {
+    transform: translateY(70px);
+  }
+}
+.manual-barcode {
+  padding: 17px 20px;
+}
+.manual-barcode label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.manual-barcode label > div {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+.manual-barcode input {
+  height: 44px;
+  border: 1px solid var(--mist);
+  border-radius: 8px;
+  padding: 0 11px;
+  min-width: 0;
+  flex: 1;
+  font-size: 16px;
+}
 .crash-screen > .logo {
   color: var(--navy);
 }
@@ -61,6 +205,29 @@
 }
 
 @media (max-width: 760px) {
+  .scanner-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .scanner-sheet {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+  }
+  .camera-view {
+    flex: 1;
+    height: auto;
+    min-height: 330px;
+  }
+  .manual-barcode {
+    padding-bottom: max(17px, env(safe-area-inset-bottom));
+  }
+  .scanner-head button {
+    min-height: 38px;
+  }
   html,
   body,
   #root {

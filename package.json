@@ -10,6 +10,7 @@
     "test": "tsx --test server/**/*.test.ts"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

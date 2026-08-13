@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import * as I from "lucide-react";
 import readXlsxFile from "read-excel-file/browser";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./styles.css";
 import "./mobile.css";
 
@@ -1222,6 +1223,7 @@ function ProductForm({ close, done }: any) {
   const [f, setF] = useState({
       name: "",
       sku: "",
+      barcode: "",
       category: "",
       price: "",
       cost: "",
@@ -1265,6 +1267,18 @@ function ProductForm({ close, done }: any) {
             required
             value={f.sku}
             onChange={(e) => setF({ ...f, sku: e.target.value })}
+          />
+        </label>
+        <label>
+          Barcode (optional)
+          <input
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={f.barcode}
+            onChange={(e) =>
+              setF({ ...f, barcode: e.target.value.replace(/\D/g, "") })
+            }
+            placeholder="Scan or enter barcode"
           />
         </label>
         <label>
@@ -1325,6 +1339,7 @@ function POS() {
   const [products, setProducts] = useState<any[]>([]),
     [cart, setCart] = useState<Record<string, number>>({}),
     [query, setQuery] = useState(""),
+    [scanning, setScanning] = useState(false),
     [pay, setPay] = useState<"cash" | "pos">("cash"),
     [confirming, setConfirming] = useState(false),
     [processing, setProcessing] = useState(false),
@@ -1340,6 +1355,23 @@ function POS() {
   const add = (p: any) => {
     if (p.stock > 0)
       setCart((c) => ({ ...c, [p.id]: Math.min(p.stock, (c[p.id] || 0) + 1) }));
+  };
+  const scanned = async (code: string) => {
+    setScanning(false);
+    setMessage("");
+    try {
+      const product = await api(
+        `/products/barcode/${encodeURIComponent(code)}`,
+      );
+      if (product.stock <= 0) {
+        setMessage(`${product.name} is out of stock.`);
+        return;
+      }
+      add(product);
+      setQuery(product.name);
+    } catch (e: any) {
+      setMessage(e.message);
+    }
   };
   const checkout = async () => {
     if (processing) return;
@@ -1379,7 +1411,13 @@ function POS() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search products by name or SKU…"
           />
-          <kbd>⌘ K</kbd>
+          <button
+            className="scan-trigger"
+            aria-label="Scan barcode"
+            onClick={() => setScanning(true)}
+          >
+            <I.ScanBarcode />
+          </button>
         </div>
         <div className="category-chips">
           <button className="selected">All products</button>
@@ -1592,6 +1630,106 @@ function POS() {
           </div>
         </div>
       )}
+      {scanning && (
+        <BarcodeScanner close={() => setScanning(false)} onScan={scanned} />
+      )}
+    </div>
+  );
+}
+function BarcodeScanner({
+  close,
+  onScan,
+}: {
+  close: () => void;
+  onScan: (code: string) => void;
+}) {
+  const videoRef = React.useRef<HTMLVideoElement>(null),
+    controlsRef = React.useRef<any>(null),
+    [status, setStatus] = useState("Starting camera…"),
+    [manual, setManual] = useState("");
+  useEffect(() => {
+    let active = true;
+    const start = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia)
+          throw new Error("Camera scanning is not supported on this browser.");
+        const reader = new BrowserMultiFormatReader();
+        controlsRef.current = await reader.decodeFromConstraints(
+          { audio: false, video: { facingMode: { ideal: "environment" } } },
+          videoRef.current!,
+          (result) => {
+            if (result && active) {
+              active = false;
+              navigator.vibrate?.(80);
+              controlsRef.current?.stop();
+              onScan(result.getText());
+            }
+          },
+        );
+        setStatus("Position the barcode inside the frame");
+      } catch (e: any) {
+        setStatus(
+          e.name === "NotAllowedError"
+            ? "Camera access was denied. Allow camera access or enter the barcode below."
+            : e.message || "The camera could not be started.",
+        );
+      }
+    };
+    void start();
+    return () => {
+      active = false;
+      controlsRef.current?.stop();
+      if (videoRef.current?.srcObject)
+        (videoRef.current.srcObject as MediaStream)
+          .getTracks()
+          .forEach((t) => t.stop());
+    };
+  }, []);
+  const submit = (e: any) => {
+    e.preventDefault();
+    if (/^\d{6,18}$/.test(manual)) onScan(manual);
+  };
+  return (
+    <div className="overlay scanner-overlay">
+      <div className="scanner-sheet">
+        <div className="scanner-head">
+          <div>
+            <span>BARCODE SCANNER</span>
+            <h2>Scan a product</h2>
+          </div>
+          <button onClick={close}>
+            <I.X />
+          </button>
+        </div>
+        <div className="camera-view">
+          <video ref={videoRef} autoPlay muted playsInline />
+          <div className="scan-frame">
+            <i></i>
+            <i></i>
+            <i></i>
+            <i></i>
+            <span></span>
+          </div>
+          <p>{status}</p>
+        </div>
+        <form className="manual-barcode" onSubmit={submit}>
+          <label>
+            Or enter barcode manually
+            <div>
+              <input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={manual}
+                onChange={(e) => setManual(e.target.value.replace(/\D/g, ""))}
+                placeholder="Barcode number"
+              />
+              <button className="primary" disabled={!/^\d{6,18}$/.test(manual)}>
+                Find product
+              </button>
+            </div>
+          </label>
+        </form>
+      </div>
     </div>
   );
 }

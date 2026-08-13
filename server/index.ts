@@ -113,13 +113,11 @@ app.post("/api/auth/register", async (req, res) => {
         role: user.role,
         organizationId: user.organizationId,
       };
-      return res
-        .status(201)
-        .json({
-          token: jwt.sign(claims, secret, { expiresIn: "12h" }),
-          user: claims,
-          business: { name: user.businessName, currency: "NGN" },
-        });
+      return res.status(201).json({
+        token: jwt.sign(claims, secret, { expiresIn: "12h" }),
+        user: claims,
+        business: { name: user.businessName, currency: "NGN" },
+      });
     }
     const d = get();
     if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
@@ -187,16 +185,14 @@ app.post("/api/staff", auth, async (req: any, res) => {
         .parse(req.body),
       d = get();
     if (persistentAuth)
-      return res
-        .status(201)
-        .json(
-          await authRepo.createStaff(req.user.organizationId, {
-            name: x.name,
-            email: x.email,
-            password: x.temporaryPassword,
-            role: x.role,
-          }),
-        );
+      return res.status(201).json(
+        await authRepo.createStaff(req.user.organizationId, {
+          name: x.name,
+          email: x.email,
+          password: x.temporaryPassword,
+          role: x.role,
+        }),
+      );
     if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
       throw new Error("A staff account with this email already exists.");
     const user = {
@@ -324,12 +320,33 @@ app.get("/api/dashboard", auth, (_req, res) => {
   });
 });
 app.get("/api/products", auth, (_q, res) => res.json(get().products));
+app.get("/api/products/barcode/:barcode", auth, (req, res) => {
+  const barcode = req.params.barcode.trim();
+  if (!/^\d{6,18}$/.test(barcode))
+    return res
+      .status(400)
+      .json({ message: "This barcode format is not supported." });
+  const product = get().products.find(
+    (p) => p.status === "active" && p.barcode === barcode,
+  );
+  if (!product)
+    return res
+      .status(404)
+      .json({ message: "No product is assigned to this barcode." });
+  res.json(product);
+});
 app.post("/api/products", auth, (req, res) => {
   try {
     const x = z
       .object({
         name: z.string().min(2),
         sku: z.string().min(2),
+        barcode: z
+          .string()
+          .trim()
+          .regex(/^\d{6,18}$/, "Barcode must contain 6 to 18 digits.")
+          .optional()
+          .or(z.literal("")),
         category: z.string().min(2),
         price: z.number().nonnegative(),
         cost: z.number().nonnegative(),
@@ -337,8 +354,10 @@ app.post("/api/products", auth, (req, res) => {
         threshold: z.number().int().nonnegative(),
       })
       .parse(req.body);
-    if (get().products.some((p) => p.sku === x.sku))
+    if (get().products.some((p) => p.sku.toLowerCase() === x.sku.toLowerCase()))
       throw new Error("That SKU already exists.");
+    if (x.barcode && get().products.some((p) => p.barcode === x.barcode))
+      throw new Error("That barcode is already assigned to another product.");
     const p = { id: id(), ...x, status: "active" as const };
     get().products.unshift(p);
     if (p.stock > 0)
@@ -499,6 +518,15 @@ app.post("/api/products/import/confirm", auth, (req: any, res) => {
 app.patch("/api/products/:id", auth, (req, res) => {
   const p = get().products.find((x) => x.id === req.params.id);
   if (!p) return res.status(404).json({ message: "Product not found." });
+  if (
+    req.body.barcode &&
+    get().products.some((x) => x.id !== p.id && x.barcode === req.body.barcode)
+  )
+    return res
+      .status(400)
+      .json({
+        message: "That barcode is already assigned to another product.",
+      });
   Object.assign(p, req.body);
   save();
   res.json(p);
