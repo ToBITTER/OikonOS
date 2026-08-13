@@ -926,17 +926,36 @@ function StockImport({ close, done }: any) {
     setBusy(true);
     setError("");
     try {
-      const rows = await readXlsxFile(file);
-      if (rows.length < 2)
-        throw new Error("The workbook does not contain any product rows.");
+      const sheets = await readXlsxFile(file);
+      const requiredHeaders = Object.keys(importHeaders);
+      let selected:
+        { sheet: string; data: any[][]; headerIndex: number } | undefined;
+      for (const sheet of sheets) {
+        const data = sheet.data as any[][];
+        const headerIndex = data.findIndex((row) => {
+          const cells = row.map((x) =>
+            String(x ?? "")
+              .trim()
+              .toLowerCase(),
+          );
+          return requiredHeaders.every((h) => cells.includes(h));
+        });
+        if (headerIndex >= 0) {
+          selected = { sheet: sheet.sheet, data, headerIndex };
+          break;
+        }
+      }
+      if (!selected)
+        throw new Error(
+          `No worksheet contains the required headings. Found ${sheets.length} ${sheets.length === 1 ? "worksheet" : "worksheets"}: ${sheets.map((s) => s.sheet).join(", ")}.`,
+        );
+      const rows = selected.data.slice(selected.headerIndex);
       const headers = rows[0].map((x) =>
           String(x ?? "")
             .trim()
             .toLowerCase(),
         ),
-        missing = Object.keys(importHeaders).filter(
-          (h) => !headers.includes(h),
-        );
+        missing = requiredHeaders.filter((h) => !headers.includes(h));
       if (missing.length)
         throw new Error(`Missing required columns: ${missing.join(", ")}.`);
       const data = rows
@@ -955,6 +974,10 @@ function StockImport({ close, done }: any) {
           });
           return item;
         });
+      if (!data.length)
+        throw new Error(
+          `The worksheet “${selected.sheet}” has the correct headings but no product rows beneath them.`,
+        );
       const result = await api("/products/import/preview", {
         method: "POST",
         body: JSON.stringify({ rows: data }),
