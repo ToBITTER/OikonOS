@@ -5,16 +5,21 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import path from "node:path";
 import { get, id, load, save } from "./store.js";
+import * as authRepo from "./identity/auth.repository.js";
 load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
+const persistentAuth =
+  process.env.NODE_ENV === "production" && Boolean(process.env.DATABASE_URL);
 app.use(cors());
 app.use(express.json());
-const auth = (req: any, res: any, next: any) => {
+const auth = async (req: any, res: any, next: any) => {
   try {
     const token = req.headers.authorization?.replace("Bearer ", "");
     const claims: any = jwt.verify(token, secret);
-    const current = get().users.find((u) => u.id === claims.id);
+    const current = persistentAuth
+      ? await authRepo.findById(claims.id, claims.organizationId)
+      : get().users.find((u) => u.id === claims.id);
     if (!current || current.status !== "active")
       return res.status(401).json({
         message:
@@ -44,7 +49,7 @@ const passwordSchema = z
   .refine((v) => /[a-z]/.test(v), "Password must include a lowercase letter.")
   .refine((v) => /[A-Z]/.test(v), "Password must include an uppercase letter.")
   .refine((v) => /[0-9]/.test(v), "Password must include a number.");
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const parsed = z
     .object({
       email: z
@@ -56,22 +61,36 @@ app.post("/api/auth/login", (req, res) => {
     })
     .safeParse(req.body);
   if (!parsed.success) return fail(res, parsed.error);
-  const u = get().users.find(
-    (x) => x.email.toLowerCase() === parsed.data.email.toLowerCase(),
-  );
+  const record = persistentAuth
+    ? await authRepo.findByEmail(parsed.data.email)
+    : null;
+  const u: any =
+    record?.user ||
+    get().users.find(
+      (x) => x.email.toLowerCase() === parsed.data.email.toLowerCase(),
+    );
+  const hash = record?.passwordHash || u?.password;
   const passwordIsValid =
-    Boolean(u?.password?.startsWith("$2")) &&
-    bcrypt.compareSync(parsed.data.password, u!.password);
+    Boolean(hash?.startsWith("$2")) &&
+    bcrypt.compareSync(parsed.data.password, hash);
   if (!u || u.status === "inactive" || !passwordIsValid)
     return res.status(401).json({ message: "Email or password is incorrect." });
-  const user = { id: u.id, name: u.name, email: u.email, role: u.role };
+  const user = {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    organizationId: u.organizationId,
+  };
   res.json({
     token: jwt.sign(user, secret, { expiresIn: "12h" }),
     user,
-    business: get().business,
+    business: persistentAuth
+      ? { name: u.businessName, currency: "NGN" }
+      : get().business,
   });
 });
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   try {
     const x = z
       .object({
@@ -85,6 +104,23 @@ app.post("/api/auth/register", (req, res) => {
         password: passwordSchema,
       })
       .parse(req.body);
+    if (persistentAuth) {
+      const user = await authRepo.registerOwner(x);
+      const claims = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        organizationId: user.organizationId,
+      };
+      return res
+        .status(201)
+        .json({
+          token: jwt.sign(claims, secret, { expiresIn: "12h" }),
+          user: claims,
+          business: { name: user.businessName, currency: "NGN" },
+        });
+    }
     const d = get();
     if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
       throw new Error("An account with this email already exists.");
@@ -118,18 +154,20 @@ app.post("/api/auth/register", (req, res) => {
 app.get("/api/me", auth, (req: any, res) =>
   res.json({ user: req.user, business: get().business }),
 );
-app.get("/api/staff", auth, (req: any, res) => {
+app.get("/api/staff", auth, async (req: any, res) => {
   if (req.user.role !== "owner" && req.user.role !== "manager")
     return res
       .status(403)
       .json({ message: "You do not have permission to manage staff." });
+  if (persistentAuth)
+    return res.json(await authRepo.listStaff(req.user.organizationId));
   res.json(
     get()
       .users.map(({ password, ...user }) => user)
       .sort((a, b) => a.name.localeCompare(b.name)),
   );
 });
-app.post("/api/staff", auth, (req: any, res) => {
+app.post("/api/staff", auth, async (req: any, res) => {
   try {
     if (req.user.role !== "owner")
       return res
@@ -148,6 +186,17 @@ app.post("/api/staff", auth, (req: any, res) => {
         })
         .parse(req.body),
       d = get();
+    if (persistentAuth)
+      return res
+        .status(201)
+        .json(
+          await authRepo.createStaff(req.user.organizationId, {
+            name: x.name,
+            email: x.email,
+            password: x.temporaryPassword,
+            role: x.role,
+          }),
+        );
     if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
       throw new Error("A staff account with this email already exists.");
     const user = {
@@ -167,7 +216,7 @@ app.post("/api/staff", auth, (req: any, res) => {
     fail(res, e);
   }
 });
-app.patch("/api/staff/:id", auth, (req: any, res) => {
+app.patch("/api/staff/:id", auth, async (req: any, res) => {
   try {
     if (req.user.role !== "owner")
       return res
@@ -187,6 +236,16 @@ app.patch("/api/staff/:id", auth, (req: any, res) => {
         })
         .parse(req.body),
       user = get().users.find((u) => u.id === req.params.id);
+    if (persistentAuth) {
+      const updated = await authRepo.updateStaff(
+        req.user.organizationId,
+        req.params.id,
+        x,
+      );
+      if (!updated)
+        return res.status(404).json({ message: "Staff member not found." });
+      return res.json(updated);
+    }
     if (!user)
       return res.status(404).json({ message: "Staff member not found." });
     if (user.role === "owner")
