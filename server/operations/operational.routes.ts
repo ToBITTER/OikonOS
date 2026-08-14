@@ -129,6 +129,73 @@ export function createOperationalRouter(auth: RequestHandler) {
       next(e);
     }
   });
+  r.get("/scan-intelligence/:barcode", async (req: any, res, next) => {
+    try {
+      const org = req.user.organizationId;
+      const product = await query(
+        `${productSelect} WHERE p.organization_id=$1 AND p.barcode=$2 AND p.status='active' LIMIT 1`,
+        [org, req.params.barcode],
+      );
+      if (!product.rowCount)
+        return res.status(404).json({
+          message: "No product is assigned to this barcode.",
+          barcode: req.params.barcode,
+        });
+      const p = product.rows[0];
+      const [salesData, movements, supplier, branches] = await Promise.all([
+        query(
+          `SELECT COALESCE(sum(si.quantity),0)::float8 units,COALESCE(sum(si.line_total),0)::float8 revenue,COALESCE(sum((si.unit_price-si.unit_cost)*si.quantity),0)::float8 profit,count(DISTINCT s.id)::int transactions FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.organization_id=$1 AND si.product_id=$2 AND s.status='completed' AND s.completed_at>=now()-interval '30 days'`,
+          [org, p.id],
+        ),
+        query(
+          `SELECT sm.id,sm.type,sm.quantity::float8,sm.balance_after::float8 "balanceAfter",sm.reason,sm.occurred_at "createdAt",concat(u.first_name,' ',u.last_name) "userName" FROM stock_movements sm JOIN users u ON u.id=sm.performed_by WHERE sm.organization_id=$1 AND sm.product_id=$2 ORDER BY sm.occurred_at DESC LIMIT 10`,
+          [org, p.id],
+        ),
+        query(
+          `SELECT s.name "supplierName",pi.unit_cost::float8 "purchasePrice",pu.received_at "receivedAt" FROM purchase_items pi JOIN purchases pu ON pu.id=pi.purchase_id JOIN suppliers s ON s.id=pu.supplier_id WHERE pu.organization_id=$1 AND pi.product_id=$2 AND pu.status='received' ORDER BY pu.received_at DESC NULLS LAST LIMIT 1`,
+          [org, p.id],
+        ),
+        query(
+          `SELECT l.id,l.name,COALESCE(i.quantity,0)::float8 stock FROM locations l LEFT JOIN inventory_levels i ON i.location_id=l.id AND i.product_id=$2 WHERE l.organization_id=$1 AND l.status='active' ORDER BY l.is_default DESC,l.name`,
+          [org, p.id],
+        ),
+      ]);
+      const metrics = salesData.rows[0];
+      const dailyVelocity = Number(metrics.units) / 30;
+      const daysUntilStockout =
+        dailyVelocity > 0 ? Number(p.stock) / dailyVelocity : null;
+      const targetStock = Math.ceil(dailyVelocity * 21 + Number(p.threshold));
+      res.json({
+        product: p,
+        intelligence: {
+          margin: Number(p.price) - Number(p.cost),
+          marginPercent: Number(p.price)
+            ? ((Number(p.price) - Number(p.cost)) / Number(p.price)) * 100
+            : 0,
+          unitsSold30Days: Number(metrics.units),
+          revenue30Days: Number(metrics.revenue),
+          profit30Days: Number(metrics.profit),
+          transactions30Days: Number(metrics.transactions),
+          dailyVelocity,
+          daysUntilStockout,
+          suggestedReorder: Math.max(0, targetStock - Number(p.stock)),
+          stockRisk:
+            Number(p.stock) === 0
+              ? "out"
+              : Number(p.stock) <= Number(p.threshold)
+                ? "low"
+                : daysUntilStockout !== null && daysUntilStockout <= 7
+                  ? "soon"
+                  : "healthy",
+        },
+        lastPurchase: supplier.rows[0] || null,
+        branches: branches.rows,
+        movements: movements.rows,
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
   r.post("/products", async (req: any, res, next) => {
     try {
       const x = productInput.parse(req.body);
@@ -412,6 +479,99 @@ export function createOperationalRouter(auth: RequestHandler) {
             userName: req.user.name,
             createdAt: m.rows[0].occurred_at,
           },
+        };
+      });
+      res.status(201).json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+  r.post("/scan-intelligence/receive", async (req: any, res, next) => {
+    try {
+      if (req.user.role === "seller")
+        return res
+          .status(403)
+          .json({ message: "Seller accounts cannot receive stock." });
+      const input = z
+        .object({
+          supplierName: z.string().trim().min(2).max(160),
+          items: z
+            .array(
+              z.object({
+                productId: z.string().uuid(),
+                quantity: z.number().int().positive(),
+                unitCost: z.number().nonnegative(),
+              }),
+            )
+            .min(1)
+            .max(500),
+        })
+        .parse(req.body);
+      const result = await transaction(async (client) => {
+        const org = req.user.organizationId;
+        const loc = await location(org, client);
+        let supplier = await client.query(
+          `SELECT id FROM suppliers WHERE organization_id=$1 AND lower(name)=lower($2) AND status='active' LIMIT 1`,
+          [org, input.supplierName],
+        );
+        if (!supplier.rowCount)
+          supplier = await client.query(
+            `INSERT INTO suppliers(organization_id,name) VALUES($1,$2) RETURNING id`,
+            [org, input.supplierName],
+          );
+        const total = input.items.reduce(
+          (sum, item) => sum + item.quantity * item.unitCost,
+          0,
+        );
+        const purchase = await client.query(
+          `INSERT INTO purchases(organization_id,location_id,supplier_id,status,subtotal,total,amount_paid,received_at,created_by) VALUES($1,$2,$3,'received',$4,$4,0,now(),$5) RETURNING id,purchase_number`,
+          [org, loc, supplier.rows[0].id, total, req.user.id],
+        );
+        for (const item of input.items) {
+          const stock = await client.query(
+            `SELECT i.quantity::float8,p.name FROM inventory_levels i JOIN products p ON p.id=i.product_id WHERE i.organization_id=$1 AND i.location_id=$2 AND i.product_id=$3 FOR UPDATE`,
+            [org, loc, item.productId],
+          );
+          if (!stock.rowCount)
+            throw new Error("A received product was not found.");
+          const after = Number(stock.rows[0].quantity) + item.quantity;
+          await client.query(
+            `INSERT INTO purchase_items(purchase_id,product_id,quantity_ordered,quantity_received,unit_cost,line_total) VALUES($1,$2,$3,$3,$4,$5)`,
+            [
+              purchase.rows[0].id,
+              item.productId,
+              item.quantity,
+              item.unitCost,
+              item.quantity * item.unitCost,
+            ],
+          );
+          await client.query(
+            `UPDATE inventory_levels SET quantity=$4,updated_at=now(),version=version+1 WHERE organization_id=$1 AND location_id=$2 AND product_id=$3`,
+            [org, loc, item.productId, after],
+          );
+          await client.query(
+            `UPDATE products SET cost_price=$3,updated_at=now() WHERE organization_id=$1 AND id=$2`,
+            [org, item.productId, item.unitCost],
+          );
+          await client.query(
+            `INSERT INTO stock_movements(organization_id,location_id,product_id,type,quantity,unit_cost,balance_after,reference_type,reference_id,reason,performed_by) VALUES($1,$2,$3,'purchase',$4,$5,$6,'purchase',$7,$8,$9)`,
+            [
+              org,
+              loc,
+              item.productId,
+              item.quantity,
+              item.unitCost,
+              after,
+              purchase.rows[0].id,
+              `Received from ${input.supplierName}`,
+              req.user.id,
+            ],
+          );
+        }
+        return {
+          purchaseNumber: purchase.rows[0].purchase_number,
+          items: input.items.length,
+          total,
         };
       });
       res.status(201).json(result);

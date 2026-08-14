@@ -336,6 +336,7 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
 const nav = [
   ["Overview", I.LayoutDashboard, "/"],
   ["Point of sale", I.ScanLine, "/pos"],
+  ["Scan intelligence", I.ScanBarcode, "/scan"],
   ["Sales", I.ReceiptText, "/sales"],
   ["Products", I.Package, "/products"],
   ["Inventory", I.Boxes, "/inventory"],
@@ -353,7 +354,11 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
   };
   const allowed =
     user.role === "seller"
-      ? nav.filter((x) => ["Point of sale", "Sales"].includes(x[0] as string))
+      ? nav.filter((x) =>
+          ["Point of sale", "Scan intelligence", "Sales"].includes(
+            x[0] as string,
+          ),
+        )
       : nav;
   const page = loc.pathname,
     business = user.businessName || "Your business",
@@ -1729,6 +1734,412 @@ function POS() {
     </div>
   );
 }
+function ScanIntelligence({ user }: any) {
+  type Mode = "sell" | "stock" | "receive" | "inspect";
+  const allowed: Mode[] =
+    user.role === "seller"
+      ? ["sell", "inspect"]
+      : ["sell", "stock", "receive", "inspect"];
+  const [mode, setMode] = useState<Mode>(allowed[0]),
+    [scanning, setScanning] = useState(false),
+    [result, setResult] = useState<any>(),
+    [session, setSession] = useState<Record<string, any>>({}),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false),
+    [payment, setPayment] = useState<"cash" | "pos">("cash"),
+    [supplier, setSupplier] = useState("");
+  const scan = async (barcode: string) => {
+    setScanning(false);
+    setMessage("");
+    try {
+      const found = await api(
+        `/scan-intelligence/${encodeURIComponent(barcode)}`,
+      );
+      setResult(found);
+      if (mode !== "inspect") {
+        const p = found.product;
+        setSession((current) => ({
+          ...current,
+          [p.id]: {
+            ...p,
+            quantity: (current[p.id]?.quantity || 0) + 1,
+            unitCost: current[p.id]?.unitCost ?? p.cost,
+          },
+        }));
+      }
+      navigator.vibrate?.([60, 30, 60]);
+    } catch (e: any) {
+      setResult(undefined);
+      setMessage(e.message);
+    }
+  };
+  const items = Object.values(session) as any[];
+  const changeQty = (id: string, quantity: number) =>
+    setSession((current) =>
+      quantity <= 0
+        ? Object.fromEntries(
+            Object.entries(current).filter(([key]) => key !== id),
+          )
+        : { ...current, [id]: { ...current[id], quantity } },
+    );
+  const finish = async () => {
+    if (!items.length || busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      if (mode === "sell") {
+        const sale = await api("/sales", {
+          method: "POST",
+          body: JSON.stringify({
+            items: items.map((x) => ({ productId: x.id, qty: x.quantity })),
+            payment,
+          }),
+        });
+        setMessage(`Sale ${sale.number} completed successfully.`);
+      } else if (mode === "stock") {
+        const changed = items.filter((x) => x.quantity !== x.stock);
+        if (!changed.length)
+          throw new Error("Every physical count matches the recorded stock.");
+        for (const item of changed)
+          await api(`/products/${item.id}/adjust-stock`, {
+            method: "POST",
+            body: JSON.stringify({
+              physicalCount: item.quantity,
+              type: "count",
+              reason: "Physical count completed with Scan Intelligence",
+            }),
+          });
+        setMessage(
+          `${changed.length} stock count${changed.length === 1 ? "" : "s"} reconciled.`,
+        );
+      } else if (mode === "receive") {
+        if (supplier.trim().length < 2)
+          throw new Error("Enter the supplier name before receiving stock.");
+        const receipt = await api("/scan-intelligence/receive", {
+          method: "POST",
+          body: JSON.stringify({
+            supplierName: supplier,
+            items: items.map((x) => ({
+              productId: x.id,
+              quantity: x.quantity,
+              unitCost: Number(x.unitCost),
+            })),
+          }),
+        });
+        setMessage(
+          `Purchase ${receipt.purchaseNumber} received and stock updated.`,
+        );
+      }
+      setSession({});
+      setResult(undefined);
+    } catch (e: any) {
+      setMessage(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const modeText: Record<Mode, string> = {
+    sell: "Scan products into a sale",
+    stock: "Count every physical item by scanning it",
+    receive: "Receive supplier stock with a complete audit trail",
+    inspect: "See product performance, risk, and history",
+  };
+  return (
+    <>
+      <Header
+        eyebrow="OIKONOS SCAN INTELLIGENCE"
+        title="One scan. Complete business context."
+        subtitle={modeText[mode]}
+        action={
+          <button className="primary" onClick={() => setScanning(true)}>
+            <I.ScanBarcode /> Scan product
+          </button>
+        }
+      />
+      <div className="scan-mode-tabs">
+        {allowed.map((key) => {
+          const Icon =
+            key === "sell"
+              ? I.ShoppingCart
+              : key === "stock"
+                ? I.ClipboardCheck
+                : key === "receive"
+                  ? I.PackagePlus
+                  : I.SearchCheck;
+          return (
+            <button
+              className={mode === key ? "active" : ""}
+              onClick={() => {
+                setMode(key);
+                setSession({});
+                setResult(undefined);
+                setMessage("");
+              }}
+              key={key}
+            >
+              <Icon />
+              <span>
+                <b>{key}</b>
+                <small>{modeText[key]}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {message && (
+        <div
+          className={
+            message.includes("success") ||
+            message.includes("reconciled") ||
+            message.includes("received")
+              ? "success"
+              : "error"
+          }
+        >
+          {message}
+        </div>
+      )}
+      <div className="scan-workspace">
+        <section className="scan-primary">
+          {!result ? (
+            <button className="scan-empty" onClick={() => setScanning(true)}>
+              <I.ScanBarcode />
+              <b>Ready to scan</b>
+              <span>Use the rear camera or enter the barcode manually.</span>
+            </button>
+          ) : (
+            <ProductIntelligence data={result} />
+          )}
+        </section>
+        {mode !== "inspect" && (
+          <aside className="scan-session">
+            <div className="scan-session-head">
+              <span>
+                <b>
+                  {mode === "sell"
+                    ? "Sale"
+                    : mode === "stock"
+                      ? "Physical count"
+                      : "Delivery"}{" "}
+                  session
+                </b>
+                <small>
+                  {items.length} products ·{" "}
+                  {items.reduce((a, x) => a + x.quantity, 0)} units
+                </small>
+              </span>
+              <button onClick={() => setSession({})} disabled={!items.length}>
+                Clear
+              </button>
+            </div>
+            {mode === "receive" && (
+              <label>
+                Supplier
+                <input
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  placeholder="Supplier or vendor name"
+                />
+              </label>
+            )}
+            <div className="scan-session-items">
+              {items.map((item) => (
+                <div className="scan-session-row" key={item.id}>
+                  <span>
+                    <b>{item.name}</b>
+                    <small>
+                      {mode === "stock"
+                        ? `Recorded: ${item.stock}`
+                        : money(item.price)}
+                    </small>
+                  </span>
+                  <div className="stepper">
+                    <button
+                      onClick={() => changeQty(item.id, item.quantity - 1)}
+                    >
+                      −
+                    </button>
+                    <strong>{item.quantity}</strong>
+                    <button
+                      onClick={() => changeQty(item.id, item.quantity + 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                  {mode === "receive" && (
+                    <input
+                      aria-label={`${item.name} unit cost`}
+                      type="number"
+                      min="0"
+                      value={item.unitCost}
+                      onChange={(e) =>
+                        setSession((current) => ({
+                          ...current,
+                          [item.id]: {
+                            ...current[item.id],
+                            unitCost: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+              {!items.length && (
+                <Empty
+                  icon={I.ScanLine}
+                  title="Nothing scanned yet"
+                  text="Each scan will be added to this session."
+                />
+              )}
+            </div>
+            {mode === "sell" && (
+              <label>
+                Payment
+                <select
+                  value={payment}
+                  onChange={(e) => setPayment(e.target.value as any)}
+                >
+                  <option value="cash">Cash</option>
+                  <option value="pos">POS / card</option>
+                </select>
+              </label>
+            )}
+            <button
+              className="primary wide"
+              disabled={!items.length || busy}
+              onClick={finish}
+            >
+              {busy
+                ? "Saving…"
+                : mode === "sell"
+                  ? `Complete sale · ${money(items.reduce((a, x) => a + x.price * x.quantity, 0))}`
+                  : mode === "stock"
+                    ? "Reconcile physical count"
+                    : "Receive stock"}
+            </button>
+          </aside>
+        )}
+      </div>
+      {scanning && (
+        <BarcodeScanner close={() => setScanning(false)} onScan={scan} />
+      )}
+    </>
+  );
+}
+function ProductIntelligence({ data }: any) {
+  const { product: p, intelligence: x } = data;
+  return (
+    <div className="intelligence-card">
+      <div className="intelligence-title">
+        <div className="product-icon">
+          <I.Package />
+        </div>
+        <span>
+          <small>{p.category || "Uncategorised"}</small>
+          <h2>{p.name}</h2>
+          <em>
+            {p.sku} · {p.barcode}
+          </em>
+        </span>
+        <strong>{money(p.price)}</strong>
+      </div>
+      <div className="intelligence-metrics">
+        <span>
+          <small>Available stock</small>
+          <b>{p.stock}</b>
+        </span>
+        <span>
+          <small>Margin</small>
+          <b>
+            {money(x.margin)} · {x.marginPercent.toFixed(1)}%
+          </b>
+        </span>
+        <span>
+          <small>30-day sales</small>
+          <b>{x.unitsSold30Days} units</b>
+        </span>
+        <span>
+          <small>Stock cover</small>
+          <b>
+            {x.daysUntilStockout === null
+              ? "No recent velocity"
+              : `${Math.max(0, x.daysUntilStockout).toFixed(1)} days`}
+          </b>
+        </span>
+      </div>
+      <div className={`scan-recommendation ${x.stockRisk}`}>
+        <I.Sparkles />
+        <span>
+          <b>
+            {x.stockRisk === "out"
+              ? "Out of stock"
+              : x.stockRisk === "low"
+                ? "Low-stock action required"
+                : x.stockRisk === "soon"
+                  ? "Stock may run out soon"
+                  : "Stock level is healthy"}
+          </b>
+          <small>
+            {x.suggestedReorder > 0
+              ? `Suggested reorder: ${x.suggestedReorder} units based on recent sales velocity.`
+              : "No reorder is currently suggested."}
+          </small>
+        </span>
+      </div>
+      <div className="intelligence-grid">
+        <div>
+          <h3>Branch availability</h3>
+          {data.branches.map((b: any) => (
+            <p key={b.id}>
+              <span>{b.name}</span>
+              <b>{b.stock} units</b>
+            </p>
+          ))}
+        </div>
+        <div>
+          <h3>Last supplier purchase</h3>
+          {data.lastPurchase ? (
+            <p>
+              <span>
+                {data.lastPurchase.supplierName}
+                <small>
+                  {new Date(data.lastPurchase.receivedAt).toLocaleDateString(
+                    "en-NG",
+                  )}
+                </small>
+              </span>
+              <b>{money(data.lastPurchase.purchasePrice)}</b>
+            </p>
+          ) : (
+            <p className="muted">No supplier receipt recorded yet.</p>
+          )}
+        </div>
+      </div>
+      <div className="movement-timeline">
+        <h3>Recent stock activity</h3>
+        {data.movements.slice(0, 5).map((m: any) => (
+          <div key={m.id}>
+            <i className={m.quantity < 0 ? "out" : "in"}></i>
+            <span>
+              <b>{m.reason}</b>
+              <small>
+                {m.userName} · {new Date(m.createdAt).toLocaleString("en-NG")}
+              </small>
+            </span>
+            <strong>
+              {m.quantity > 0 ? "+" : ""}
+              {m.quantity}
+            </strong>
+          </div>
+        ))}
+        {!data.movements.length && (
+          <p className="muted">No stock activity recorded.</p>
+        )}
+      </div>
+    </div>
+  );
+}
 function BarcodeScanner({
   close,
   onScan,
@@ -2705,10 +3116,11 @@ const ScreenError = ({ message }: { message: string }) => (
   </div>
 );
 function Page({ path, user }: any) {
-  if (user.role === "seller" && !["/pos", "/sales"].includes(path))
+  if (user.role === "seller" && !["/pos", "/scan", "/sales"].includes(path))
     return <POS />;
   if (path === "/") return <Dashboard user={user} />;
   if (path === "/pos") return <POS />;
+  if (path === "/scan") return <ScanIntelligence user={user} />;
   if (path === "/products") return <Products />;
   if (path === "/inventory") return <Products inventory />;
   if (path === "/sales") return <Sales />;
