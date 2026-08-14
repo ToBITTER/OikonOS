@@ -459,6 +459,7 @@ function Header({
   );
 }
 function Dashboard({ user }: any) {
+  const navigate = useNavigate();
   const [d, setD] = useState<any>(),
     [loadError, setLoadError] = useState("");
   useEffect(() => {
@@ -482,11 +483,10 @@ function Dashboard({ user }: any) {
         title={`Welcome, ${user.name.split(" ")[0]}.`}
         subtitle={`Here is what is happening across ${user.businessName || "your business"} today.`}
         action={
-          <button className="secondary">
+          <span className="secondary" aria-label="Dashboard period">
             <I.CalendarDays />
             Last 30 days
-            <I.ChevronDown />
-          </button>
+          </span>
         }
       />
       <div className="metrics">
@@ -540,7 +540,7 @@ function Dashboard({ user }: any) {
         <div>
           <span>OIKONOS INSIGHT</span>
           <strong>{d.insight}</strong>
-          <button>
+          <button onClick={() => navigate("/inventory")}>
             Review inventory <I.ArrowUpRight />
           </button>
         </div>
@@ -642,9 +642,6 @@ const CardHead = ({ title, sub }: any) => (
       <h3>{title}</h3>
       <p>{sub}</p>
     </div>
-    <button className="icon-btn">
-      <I.MoreHorizontal />
-    </button>
   </div>
 );
 function Products({ inventory = false }: { inventory?: boolean }) {
@@ -654,7 +651,8 @@ function Products({ inventory = false }: { inventory?: boolean }) {
     [adjusting, setAdjusting] = useState<any>(null),
     [movements, setMovements] = useState<any[]>([]),
     [anomalies, setAnomalies] = useState<any[]>([]),
-    [query, setQuery] = useState("");
+    [query, setQuery] = useState(""),
+    [category, setCategory] = useState("");
   const load = () => {
     api("/products").then(setItems);
     if (inventory) {
@@ -663,8 +661,12 @@ function Products({ inventory = false }: { inventory?: boolean }) {
     }
   };
   useEffect(load, []);
-  const filtered = items.filter((x) =>
-    (x.name + x.sku + x.category).toLowerCase().includes(query.toLowerCase()),
+  const filtered = items.filter(
+    (x) =>
+      (!category || x.category === category) &&
+      (x.name + x.sku + x.category)
+        .toLowerCase()
+        .includes(query.toLowerCase()),
   );
   return (
     <>
@@ -741,10 +743,19 @@ function Products({ inventory = false }: { inventory?: boolean }) {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <button className="secondary">
+          <label className="secondary filter-control">
             <I.SlidersHorizontal />
-            Filter
-          </button>
+            <select
+              aria-label="Filter products by category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">All categories</option>
+              {[...new Set(items.map((x) => x.category))].map((x) => (
+                <option key={x} value={x}>{x}</option>
+              ))}
+            </select>
+          </label>
         </div>
         <table>
           <thead>
@@ -1412,7 +1423,8 @@ function POS() {
     [confirming, setConfirming] = useState(false),
     [processing, setProcessing] = useState(false),
     [receipt, setReceipt] = useState<any>(null),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [category, setCategory] = useState("");
   useEffect(() => {
     api("/products").then(setProducts);
   }, []);
@@ -1488,15 +1500,30 @@ function POS() {
           </button>
         </div>
         <div className="category-chips">
-          <button className="selected">All products</button>
+          <button
+            className={!category ? "selected" : ""}
+            onClick={() => setCategory("")}
+          >
+            All products
+          </button>
           {[...new Set(products.map((p) => p.category))].map((x) => (
-            <button key={x}>{x}</button>
+            <button
+              className={category === x ? "selected" : ""}
+              onClick={() => setCategory(x)}
+              key={x}
+            >
+              {x}
+            </button>
           ))}
         </div>
         <div className="product-grid">
           {products
-            .filter((p) =>
-              (p.name + p.sku).toLowerCase().includes(query.toLowerCase()),
+            .filter(
+              (p) =>
+                (!category || p.category === category) &&
+                (p.name + p.sku)
+                  .toLowerCase()
+                  .includes(query.toLowerCase()),
             )
             .map((p) => (
               <button
@@ -1802,10 +1829,41 @@ function BarcodeScanner({
   );
 }
 function Sales() {
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<any[]>([]),
+    [query, setQuery] = useState(""),
+    [period, setPeriod] = useState("all");
   useEffect(() => {
     api("/sales").then(setRows);
   }, []);
+  const cutoff = period === "all" ? 0 : Date.now() - Number(period) * 86400000;
+  const filtered = rows.filter(
+    (sale) =>
+      (!cutoff || new Date(sale.createdAt).getTime() >= cutoff) &&
+      `${sale.number} ${sale.customerName || ""} ${sale.sellerName || ""}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+  const exportCsv = () => {
+    const cell = (value: unknown) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      ["Transaction", "Date", "Customer", "Seller", "Payment", "Total"],
+      ...filtered.map((sale) => [
+        sale.number,
+        new Date(sale.createdAt).toISOString(),
+        sale.customerName || "Walk-in customer",
+        sale.sellerName,
+        sale.payment,
+        sale.total,
+      ]),
+    ].map((row) => row.map(cell).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `oikonos-sales-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <>
       <Header
@@ -1813,7 +1871,7 @@ function Sales() {
         title="Sales"
         subtitle="Every transaction, payment, and customer in one place."
         action={
-          <button className="secondary">
+          <button className="secondary" onClick={exportCsv}>
             <I.Download />
             Export CSV
           </button>
@@ -1823,14 +1881,27 @@ function Sales() {
         <div className="toolbar">
           <div className="search">
             <I.Search />
-            <input placeholder="Search by receipt or customer…" />
+            <input
+              placeholder="Search by receipt or customer…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
-          <button className="secondary">
+          <label className="secondary filter-control">
             <I.CalendarDays />
-            Date range
-          </button>
+            <select
+              aria-label="Filter sales by date"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+            >
+              <option value="all">All dates</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </label>
         </div>
-        <SalesTable rows={rows} />
+        <SalesTable rows={filtered} />
       </div>
     </>
   );
@@ -2026,6 +2097,7 @@ function QuickForm({ type, close, done }: any) {
   );
 }
 function Reports() {
+  const navigate = useNavigate();
   return (
     <>
       <Header
@@ -2050,7 +2122,17 @@ function Reports() {
             </div>
             <h3>{t}</h3>
             <p>{s}</p>
-            <button>
+            <button
+              onClick={() =>
+                navigate(
+                  t === "Inventory report"
+                    ? "/inventory"
+                    : t === "Customer report"
+                      ? "/customers"
+                      : "/sales",
+                )
+              }
+            >
               Open report <I.ArrowRight />
             </button>
           </div>
