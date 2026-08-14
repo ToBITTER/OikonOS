@@ -535,6 +535,68 @@ export function createOperationalRouter(auth: RequestHandler) {
       next(e);
     }
   });
+  r.get("/reports", async (req: any, res, next) => {
+    try {
+      const period = String(req.query.period || "30");
+      if (!["7", "30", "90", "365", "all"].includes(period))
+        return res.status(400).json({ message: "Invalid report period." });
+      const days = period === "all" ? null : Number(period);
+      const org = req.user.organizationId;
+      const dateFilter = `($2::int IS NULL OR s.completed_at >= now() - ($2::text || ' days')::interval)`;
+      const [summary, trend, products, inventory, customers, expenseGroups] =
+        await Promise.all([
+          query(
+            `SELECT COALESCE(sum(s.total),0)::float8 revenue,COALESCE(sum(s.total-s.cost_total),0)::float8 "grossProfit",count(*)::int transactions,COALESCE(avg(s.total),0)::float8 "averageOrder",COALESCE((SELECT sum(si.quantity) FROM sale_items si JOIN sales sx ON sx.id=si.sale_id WHERE sx.organization_id=$1 AND sx.status='completed' AND ($2::int IS NULL OR sx.completed_at >= now() - ($2::text || ' days')::interval)),0)::float8 "unitsSold",COALESCE(sum(s.total) FILTER(WHERE p.method='cash'),0)::float8 cash,COALESCE(sum(s.total) FILTER(WHERE p.method='card'),0)::float8 pos FROM sales s LEFT JOIN payments p ON p.sale_id=s.id AND p.status='completed' WHERE s.organization_id=$1 AND s.status='completed' AND ${dateFilter}`,
+            [org, days],
+          ),
+          query(
+            `SELECT to_char(date_trunc('day',s.completed_at),'YYYY-MM-DD') day,sum(s.total)::float8 revenue,sum(s.total-s.cost_total)::float8 profit,count(*)::int transactions FROM sales s WHERE s.organization_id=$1 AND s.status='completed' AND ${dateFilter} GROUP BY date_trunc('day',s.completed_at) ORDER BY date_trunc('day',s.completed_at)`,
+            [org, days],
+          ),
+          query(
+            `SELECT si.product_name name,sum(si.quantity)::float8 units,sum(si.line_total)::float8 revenue,sum((si.unit_price-si.unit_cost)*si.quantity)::float8 profit FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.organization_id=$1 AND s.status='completed' AND ${dateFilter} GROUP BY si.product_name ORDER BY revenue DESC LIMIT 20`,
+            [org, days],
+          ),
+          query(
+            `SELECT p.name,p.sku,c.name category,COALESCE(i.quantity,0)::float8 stock,COALESCE(i.reorder_level,0)::float8 threshold,(COALESCE(i.quantity,0)*p.cost_price)::float8 value FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN locations l ON l.organization_id=p.organization_id AND l.is_default=true LEFT JOIN inventory_levels i ON i.product_id=p.id AND i.location_id=l.id WHERE p.organization_id=$1 AND p.status='active' ORDER BY value DESC`,
+            [org],
+          ),
+          query(
+            `SELECT trim(concat(c.first_name,' ',c.last_name)) name,c.phone,c.email,COALESCE(sum(s.total) FILTER(WHERE s.status='completed' AND ${dateFilter}),0)::float8 "totalSpent",count(s.id) FILTER(WHERE s.status='completed' AND ${dateFilter})::int purchases,max(s.completed_at) FILTER(WHERE s.status='completed' AND ${dateFilter}) "lastPurchase" FROM customers c LEFT JOIN sales s ON s.customer_id=c.id WHERE c.organization_id=$1 AND c.status='active' GROUP BY c.id ORDER BY "totalSpent" DESC`,
+            [org, days],
+          ),
+          query(
+            `SELECT ec.name category,sum(e.amount)::float8 amount FROM expenses e JOIN expense_categories ec ON ec.id=e.category_id WHERE e.organization_id=$1 AND e.status='active' AND ($2::int IS NULL OR e.expense_date >= current_date-$2::int) GROUP BY ec.name ORDER BY amount DESC`,
+            [org, days],
+          ),
+        ]);
+      const expenses = expenseGroups.rows.reduce(
+        (sum: number, row: any) => sum + Number(row.amount),
+        0,
+      );
+      const inventoryValue = inventory.rows.reduce(
+        (sum: number, row: any) => sum + Number(row.value),
+        0,
+      );
+      res.json({
+        period,
+        summary: {
+          ...summary.rows[0],
+          expenses,
+          netProfit: Number(summary.rows[0].grossProfit) - expenses,
+          inventoryValue,
+          customerCount: customers.rows.length,
+        },
+        trend: trend.rows,
+        products: products.rows,
+        inventory: inventory.rows,
+        customers: customers.rows,
+        expenses: expenseGroups.rows,
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
   r.get("/customers", async (req: any, res, next) => {
     try {
       const out = await query(

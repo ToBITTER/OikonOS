@@ -664,9 +664,7 @@ function Products({ inventory = false }: { inventory?: boolean }) {
   const filtered = items.filter(
     (x) =>
       (!category || x.category === category) &&
-      (x.name + x.sku + x.category)
-        .toLowerCase()
-        .includes(query.toLowerCase()),
+      (x.name + x.sku + x.category).toLowerCase().includes(query.toLowerCase()),
   );
   return (
     <>
@@ -752,7 +750,9 @@ function Products({ inventory = false }: { inventory?: boolean }) {
             >
               <option value="">All categories</option>
               {[...new Set(items.map((x) => x.category))].map((x) => (
-                <option key={x} value={x}>{x}</option>
+                <option key={x} value={x}>
+                  {x}
+                </option>
               ))}
             </select>
           </label>
@@ -1521,9 +1521,7 @@ function POS() {
             .filter(
               (p) =>
                 (!category || p.category === category) &&
-                (p.name + p.sku)
-                  .toLowerCase()
-                  .includes(query.toLowerCase()),
+                (p.name + p.sku).toLowerCase().includes(query.toLowerCase()),
             )
             .map((p) => (
               <button
@@ -1856,7 +1854,9 @@ function Sales() {
         sale.payment,
         sale.total,
       ]),
-    ].map((row) => row.map(cell).join(",")).join("\n");
+    ]
+      .map((row) => row.map(cell).join(","))
+      .join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -2097,47 +2097,272 @@ function QuickForm({ type, close, done }: any) {
   );
 }
 function Reports() {
-  const navigate = useNavigate();
+  const [report, setReport] = useState<
+      "revenue" | "profit" | "inventory" | "customers"
+    >("revenue"),
+    [period, setPeriod] = useState("30"),
+    [data, setData] = useState<any>(),
+    [error, setError] = useState("");
+  useEffect(() => {
+    setData(undefined);
+    setError("");
+    api(`/reports?period=${period}`)
+      .then(setData)
+      .catch((e: any) => setError(e.message));
+  }, [period]);
+  if (error) return <ScreenError message={error} />;
   return (
     <>
       <Header
         eyebrow="PERFORMANCE"
         title="Reports"
         subtitle="A clear view of how your business is performing."
+        action={
+          <label className="secondary filter-control">
+            <I.CalendarDays />
+            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last 12 months</option>
+              <option value="all">All time</option>
+            </select>
+          </label>
+        }
       />
-      <div className="report-grid">
-        {[
+      <div className="report-tabs">
+        {(
           [
-            "Revenue report",
-            I.LineChart,
-            "Sales performance and growth over time",
-          ],
-          ["Profit report", I.TrendingUp, "Margins, costs, and net earnings"],
-          ["Inventory report", I.Boxes, "Stock value, movement, and health"],
-          ["Customer report", I.Users, "Purchase frequency and lifetime value"],
-        ].map(([t, Icon, s]: any) => (
-          <div className="report-card" key={t}>
-            <div>
-              <Icon />
-            </div>
-            <h3>{t}</h3>
-            <p>{s}</p>
-            <button
-              onClick={() =>
-                navigate(
-                  t === "Inventory report"
-                    ? "/inventory"
-                    : t === "Customer report"
-                      ? "/customers"
-                      : "/sales",
-                )
-              }
-            >
-              Open report <I.ArrowRight />
-            </button>
-          </div>
+            ["revenue", "Revenue", I.LineChart],
+            ["profit", "Profit", I.TrendingUp],
+            ["inventory", "Inventory", I.Boxes],
+            ["customers", "Customers", I.Users],
+          ] as const
+        ).map(([key, label, Icon]) => (
+          <button
+            className={report === key ? "active" : ""}
+            onClick={() => setReport(key)}
+            key={key}
+          >
+            <Icon /> {label}
+          </button>
         ))}
       </div>
+      {!data ? (
+        <Loader />
+      ) : (
+        <div className="report-body">
+          <div className="metrics">
+            {report === "revenue" && (
+              <>
+                <Metric
+                  label="Revenue"
+                  value={money(data.summary.revenue)}
+                  icon={I.Banknote}
+                />
+                <Metric
+                  label="Transactions"
+                  value={data.summary.transactions}
+                  icon={I.Receipt}
+                />
+                <Metric
+                  label="Average order"
+                  value={money(data.summary.averageOrder)}
+                  icon={I.BadgeDollarSign}
+                />
+                <Metric
+                  label="Units sold"
+                  value={data.summary.unitsSold}
+                  icon={I.Package}
+                />
+              </>
+            )}
+            {report === "profit" && (
+              <>
+                <Metric
+                  label="Gross profit"
+                  value={money(data.summary.grossProfit)}
+                  icon={I.TrendingUp}
+                />
+                <Metric
+                  label="Expenses"
+                  value={money(data.summary.expenses)}
+                  icon={I.WalletCards}
+                />
+                <Metric
+                  label="Net profit"
+                  value={money(data.summary.netProfit)}
+                  icon={I.BadgeDollarSign}
+                />
+                <Metric
+                  label="Gross margin"
+                  value={`${data.summary.revenue ? ((data.summary.grossProfit / data.summary.revenue) * 100).toFixed(1) : "0.0"}%`}
+                  icon={I.LineChart}
+                />
+              </>
+            )}
+            {report === "inventory" && (
+              <>
+                <Metric
+                  label="Inventory value"
+                  value={money(data.summary.inventoryValue)}
+                  icon={I.Boxes}
+                />
+                <Metric
+                  label="Products"
+                  value={data.inventory.length}
+                  icon={I.Package}
+                />
+                <Metric
+                  label="Low stock"
+                  value={
+                    data.inventory.filter((x: any) => x.stock <= x.threshold)
+                      .length
+                  }
+                  icon={I.TriangleAlert}
+                />
+                <Metric
+                  label="Out of stock"
+                  value={
+                    data.inventory.filter((x: any) => x.stock === 0).length
+                  }
+                  icon={I.PackageX}
+                />
+              </>
+            )}
+            {report === "customers" && (
+              <>
+                <Metric
+                  label="Customers"
+                  value={data.summary.customerCount}
+                  icon={I.Users}
+                />
+                <Metric
+                  label="Customer revenue"
+                  value={money(
+                    data.customers.reduce(
+                      (a: number, x: any) => a + x.totalSpent,
+                      0,
+                    ),
+                  )}
+                  icon={I.Banknote}
+                />
+                <Metric
+                  label="Purchases"
+                  value={data.customers.reduce(
+                    (a: number, x: any) => a + x.purchases,
+                    0,
+                  )}
+                  icon={I.Receipt}
+                />
+                <Metric
+                  label="Returning customers"
+                  value={
+                    data.customers.filter((x: any) => x.purchases > 1).length
+                  }
+                  icon={I.UserCheck}
+                />
+              </>
+            )}
+          </div>
+          {(report === "revenue" || report === "profit") && (
+            <div className="table-card report-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Revenue</th>
+                    <th>Gross profit</th>
+                    <th>Transactions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.trend.map((x: any) => (
+                    <tr key={x.day}>
+                      <td>
+                        {new Date(`${x.day}T00:00:00`).toLocaleDateString(
+                          "en-NG",
+                          { day: "numeric", month: "short", year: "numeric" },
+                        )}
+                      </td>
+                      <td className="mono">{money(x.revenue)}</td>
+                      <td className="mono">{money(x.profit)}</td>
+                      <td>{x.transactions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!data.trend.length && (
+                <Empty
+                  icon={I.LineChart}
+                  title="No report data yet"
+                  text="Completed sales in this period will appear here."
+                />
+              )}
+            </div>
+          )}
+          {report === "inventory" && (
+            <div className="table-card report-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Category</th>
+                    <th>Stock</th>
+                    <th>Threshold</th>
+                    <th>Stock value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.inventory.map((x: any) => (
+                    <tr key={x.sku}>
+                      <td>
+                        <b>{x.name}</b>
+                        <small>{x.sku}</small>
+                      </td>
+                      <td>{x.category || "Uncategorised"}</td>
+                      <td>{x.stock}</td>
+                      <td>{x.threshold}</td>
+                      <td className="mono">{money(x.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {report === "customers" && (
+            <div className="table-card report-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Purchases</th>
+                    <th>Total spent</th>
+                    <th>Last purchase</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.customers.map((x: any) => (
+                    <tr key={`${x.name}-${x.phone}`}>
+                      <td>
+                        <b>{x.name}</b>
+                        <small>{x.phone || x.email}</small>
+                      </td>
+                      <td>{x.purchases}</td>
+                      <td className="mono">{money(x.totalSpent)}</td>
+                      <td>
+                        {x.lastPurchase
+                          ? new Date(x.lastPurchase).toLocaleDateString("en-NG")
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

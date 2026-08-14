@@ -730,4 +730,52 @@
     padding-right: 17px;
   }
 }
-.filter-control{margin:0}.filter-control select{border:0;background:transparent;color:inherit;outline:0;cursor:pointer;max-width:160px}
+.filter-control {
+  margin: 0;
+}
+.filter-control select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  outline: 0;
+  cursor: pointer;
+  max-width: 160px;
+}
+.report-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+.report-tabs button {
+  height: 42px;
+  padding: 0 17px;
+  border: 1px solid var(--mist);
+  border-radius: 9px;
+  background: #fff;
+  color: #657086;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.report-tabs button svg {
+  width: 16px;
+}
+.report-tabs button.active {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.report-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.report-table {
+  max-height: 560px;
+  overflow: auto;
+}
+.report-table .empty {
+  min-height: 300px;
+}
