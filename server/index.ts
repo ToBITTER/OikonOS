@@ -7,6 +7,9 @@ import path from "node:path";
 import { get, id, load, save } from "./store.js";
 import * as authRepo from "./identity/auth.repository.js";
 import { createOperationalRouter } from "./operations/operational.routes.js";
+import { pool, transaction as dbTransaction } from "./platform/database.js";
+import { queueEmail } from "./notifications/notification.service.js";
+import { startEmailWorker } from "./notifications/email.worker.js";
 load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
@@ -87,6 +90,22 @@ app.post("/api/auth/login", async (req, res) => {
     role: u.role,
     organizationId: u.organizationId,
   };
+  if (persistentAuth)
+    void dbTransaction((client) =>
+      queueEmail(client, {
+        organizationId: u.organizationId,
+        recipientUserId: u.id,
+        recipientEmail: u.email,
+        event: "auth.new_login",
+        payload: {
+          time: new Date().toLocaleString("en-NG", {
+            timeZone: "Africa/Lagos",
+          }),
+          ip: req.ip,
+        },
+        deduplicationKey: `auth.new_login:${u.id}:${Date.now()}`,
+      }),
+    ).catch((error) => console.error("Could not queue login email", error));
   res.json({
     token: jwt.sign(user, secret, { expiresIn: "12h" }),
     user,
@@ -270,6 +289,44 @@ app.patch("/api/staff/:id", auth, async (req: any, res) => {
   } catch (e) {
     fail(res, e);
   }
+});
+app.get("/api/email/status", auth, async (req: any, res) => {
+  if (!persistentAuth || req.user.role !== "owner")
+    return res
+      .status(403)
+      .json({
+        message: "Only the business owner can view email delivery status.",
+      });
+  const counts = await pool.query(
+    `SELECT status,count(*)::int count FROM notification_outbox WHERE organization_id=$1 AND channel='email' GROUP BY status`,
+    [req.user.organizationId],
+  );
+  const recent = await pool.query(
+    `SELECT event_type "eventType",recipient_address recipient,status,attempts,last_error "lastError",created_at "createdAt",sent_at "sentAt" FROM notification_outbox WHERE organization_id=$1 AND channel='email' ORDER BY created_at DESC LIMIT 20`,
+    [req.user.organizationId],
+  );
+  res.json({ counts: counts.rows, recent: recent.rows });
+});
+app.post("/api/email/test", auth, async (req: any, res) => {
+  if (!persistentAuth || req.user.role !== "owner")
+    return res
+      .status(403)
+      .json({ message: "Only the business owner can send a test email." });
+  await dbTransaction(async (client) =>
+    queueEmail(client, {
+      organizationId: req.user.organizationId,
+      recipientUserId: req.user.id,
+      recipientEmail: req.user.email,
+      event: "settings.changed",
+      payload: {
+        actorName: req.user.name,
+        setting: "Email delivery test",
+        actionUrl: process.env.APP_URL || "https://oikonos.onrender.com",
+      },
+      deduplicationKey: `email-test:${req.user.id}:${Date.now()}`,
+    }),
+  );
+  res.status(202).json({ message: `Test email queued for ${req.user.email}.` });
 });
 // Public authentication and protected staff routes must be registered before
 // this tenant-wide operational router. Otherwise its auth middleware intercepts
@@ -813,6 +870,9 @@ app.use(express.static(path.join(process.cwd(), "dist")));
 app.get(/^(?!\/api).*/, (_req, res) =>
   res.sendFile(path.join(process.cwd(), "dist", "index.html")),
 );
-app.listen(4000, () =>
-  console.log("OikonOS API running on http://localhost:4000"),
-);
+app.listen(Number(process.env.PORT) || 4000, () => {
+  console.log(
+    `OikonOS API running on port ${Number(process.env.PORT) || 4000}`,
+  );
+  if (persistentAuth) startEmailWorker();
+});

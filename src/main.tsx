@@ -3186,12 +3186,36 @@ function Reports() {
 function Settings({ user }: any) {
   const [staff, setStaff] = useState<any[]>([]),
     [show, setShow] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [emailStatus, setEmailStatus] = useState<any>(),
+    [emailMessage, setEmailMessage] = useState(""),
+    [testingEmail, setTestingEmail] = useState(false);
   const load = () =>
     api("/staff")
       .then(setStaff)
       .catch((e: any) => setError(e.message));
   useEffect(load, []);
+  const loadEmailStatus = () =>
+    user.role === "owner" &&
+    api("/email/status")
+      .then(setEmailStatus)
+      .catch(() => {});
+  useEffect(() => {
+    void loadEmailStatus();
+  }, []);
+  const testEmail = async () => {
+    setTestingEmail(true);
+    setEmailMessage("");
+    try {
+      const result = await api("/email/test", { method: "POST" });
+      setEmailMessage(result.message);
+      setTimeout(loadEmailStatus, 1500);
+    } catch (e: any) {
+      setEmailMessage(e.message);
+    } finally {
+      setTestingEmail(false);
+    }
+  };
   const update = async (member: any, changes: any) => {
     setError("");
     try {
@@ -3223,6 +3247,60 @@ function Settings({ user }: any) {
         <div className="error">
           <I.CircleAlert />
           {error}
+        </div>
+      )}
+      {user.role === "owner" && (
+        <div className="email-delivery-card">
+          <div>
+            <I.MailCheck />
+            <span>
+              <b>Email delivery</b>
+              <small>
+                Resend delivery queue and recent provider responses.
+              </small>
+            </span>
+          </div>
+          <div className="email-counts">
+            {["sent", "pending", "failed"].map((status) => (
+              <span className={status} key={status}>
+                <b>
+                  {emailStatus?.counts?.find((x: any) => x.status === status)
+                    ?.count || 0}
+                </b>
+                {status}
+              </span>
+            ))}
+          </div>
+          <button
+            className="secondary"
+            disabled={testingEmail}
+            onClick={testEmail}
+          >
+            <I.Send />
+            {testingEmail ? "Queueing…" : "Send test email"}
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Refresh email delivery status"
+            onClick={loadEmailStatus}
+          >
+            <I.RefreshCw />
+          </button>
+          {emailMessage && <p>{emailMessage}</p>}
+          {emailStatus?.recent?.find((x: any) => x.status === "failed") && (
+            <div className="email-failure">
+              <I.TriangleAlert />
+              <span>
+                <b>Latest delivery error</b>
+                <small>
+                  {
+                    emailStatus.recent.find((x: any) => x.status === "failed")
+                      .lastError
+                  }
+                </small>
+              </span>
+            </div>
+          )}
         </div>
       )}
       <div className="access-overview">

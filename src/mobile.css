@@ -1332,3 +1332,96 @@
     display: none;
   }
 }
+.email-delivery-card {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1px solid var(--mist);
+  border-radius: 14px;
+  padding: 17px;
+  margin-bottom: 16px;
+}
+.email-delivery-card > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.email-delivery-card > div:first-child > svg {
+  width: 23px;
+  color: var(--navy);
+}
+.email-delivery-card > div:first-child span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.email-delivery-card small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.email-counts {
+  display: flex;
+  gap: 6px;
+}
+.email-counts span {
+  min-width: 55px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #f3f5f9;
+  text-align: center;
+  text-transform: capitalize;
+  font-size: 9px;
+  color: var(--muted);
+}
+.email-counts span b {
+  display: block;
+  font-size: 13px;
+  color: #253251;
+}
+.email-counts .sent {
+  background: #e9fbf5;
+}
+.email-counts .failed {
+  background: #fff1f2;
+}
+.email-delivery-card > p,
+.email-failure {
+  grid-column: 1/-1;
+}
+.email-delivery-card > p {
+  color: var(--navy);
+  font-size: 11px;
+}
+.email-failure {
+  display: flex;
+  gap: 9px;
+  padding: 10px;
+  background: #fff1f2;
+  border-radius: 8px;
+  color: #a5303e;
+}
+.email-failure svg {
+  width: 17px;
+}
+.email-failure span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+@media (max-width: 800px) {
+  .email-delivery-card {
+    grid-template-columns: 1fr auto;
+  }
+  .email-counts {
+    grid-column: 1/-1;
+    order: 3;
+  }
+  .email-delivery-card > .secondary {
+    grid-column: 1;
+  }
+  .email-delivery-card > .icon-btn {
+    grid-column: 2;
+  }
+}

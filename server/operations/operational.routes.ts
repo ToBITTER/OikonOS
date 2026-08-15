@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { query, transaction } from "../platform/database.js";
+import { queueAdminEmails } from "../notifications/notification.service.js";
 
 const productInput = z.object({
   name: z.string().min(2),
@@ -243,22 +244,18 @@ export function createOperationalRouter(auth: RequestHandler) {
       });
     } catch (e: any) {
       if (e?.name === "TimeoutError")
-        return res
-          .status(504)
-          .json({
-            message: "Product lookup timed out. You can still add it manually.",
-          });
+        return res.status(504).json({
+          message: "Product lookup timed out. You can still add it manually.",
+        });
       next(e);
     }
   });
   r.post("/products", async (req: any, res, next) => {
     try {
       if (req.user.role === "seller")
-        return res
-          .status(403)
-          .json({
-            message: "Seller accounts cannot create catalogue products.",
-          });
+        return res.status(403).json({
+          message: "Seller accounts cannot create catalogue products.",
+        });
       const x = productInput.parse(req.body);
       const result = await transaction(async (c) => {
         const org = req.user.organizationId,
@@ -521,6 +518,19 @@ export function createOperationalRouter(auth: RequestHandler) {
             req.user.id,
           ],
         );
+        await queueAdminEmails(c, {
+          organizationId: org,
+          event: "inventory.adjusted",
+          payload: {
+            productName: locked.rows[0].name,
+            actorName: req.user.name,
+            previousStock: previous,
+            newStock: x.physicalCount,
+            reason: x.reason,
+            url: `${process.env.APP_URL || "https://oikonos.onrender.com"}/inventory`,
+          },
+          deduplicationKey: `inventory.adjusted:${m.rows[0].id}`,
+        });
         return {
           product: {
             id: req.params.id,
@@ -739,6 +749,19 @@ export function createOperationalRouter(auth: RequestHandler) {
             req.user.id,
           ],
         );
+        await queueAdminEmails(c, {
+          organizationId: org,
+          event: "sale.completed",
+          payload: {
+            number: `SAL-${String(s.rows[0].receipt_number).padStart(4, "0")}`,
+            sellerName: req.user.name,
+            payment: x.payment,
+            total: subtotal,
+            currency: "NGN",
+            url: `${process.env.APP_URL || "https://oikonos.onrender.com"}/sales`,
+          },
+          deduplicationKey: `sale.completed:${s.rows[0].id}`,
+        });
         return {
           ...s.rows[0],
           seller_name: req.user.name,
