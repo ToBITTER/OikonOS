@@ -1744,12 +1744,20 @@ function ScanIntelligence({ user }: any) {
   const [mode, setMode] = useState<Mode>(allowed[0]),
     [scanning, setScanning] = useState(false),
     [result, setResult] = useState<any>(),
+    [unknown, setUnknown] = useState<any>(),
     [session, setSession] = useState<Record<string, any>>({}),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [payment, setPayment] = useState<"cash" | "pos">("cash"),
     [supplier, setSupplier] = useState(""),
-    [online, setOnline] = useState(navigator.onLine);
+    [online, setOnline] = useState(navigator.onLine),
+    [history, setHistory] = useState<any[]>(() => {
+      try {
+        return JSON.parse(localStorage.getItem("oikonos:scan-history") || "[]");
+      } catch {
+        return [];
+      }
+    });
   useEffect(() => {
     const connected = () => setOnline(true),
       disconnected = () => setOnline(false);
@@ -1791,6 +1799,22 @@ function ScanIntelligence({ user }: any) {
         else throw requestError;
       }
       setResult(found);
+      setUnknown(undefined);
+      setHistory((current) => {
+        const next = [
+          {
+            barcode,
+            name: found.product.name,
+            sku: found.product.sku,
+            price: found.product.price,
+            stock: found.product.stock,
+            scannedAt: new Date().toISOString(),
+          },
+          ...current.filter((item) => item.barcode !== barcode),
+        ].slice(0, 10);
+        localStorage.setItem("oikonos:scan-history", JSON.stringify(next));
+        return next;
+      });
       if (mode !== "inspect") {
         const p = found.product;
         setSession((current) => ({
@@ -1805,10 +1829,40 @@ function ScanIntelligence({ user }: any) {
       navigator.vibrate?.([60, 30, 60]);
     } catch (e: any) {
       setResult(undefined);
-      setMessage(e.message);
+      if (navigator.onLine && /No product is assigned/i.test(e.message)) {
+        try {
+          const lookup = await api(
+            `/barcode-lookup/${encodeURIComponent(barcode)}`,
+          );
+          setUnknown(lookup);
+          setScanning(false);
+          setMessage("");
+        } catch (lookupError: any) {
+          setMessage(lookupError.message);
+        }
+      } else setMessage(e.message);
     }
   };
   const items = Object.values(session) as any[];
+  const openRecent = async (barcode: string) => {
+    setMode("inspect");
+    setSession({});
+    setUnknown(undefined);
+    setMessage("");
+    try {
+      const cached = localStorage.getItem(`oikonos:scan-cache:${barcode}`);
+      const found = navigator.onLine
+        ? await api(`/scan-intelligence/${encodeURIComponent(barcode)}`)
+        : cached
+          ? JSON.parse(cached)
+          : null;
+      if (!found)
+        throw new Error("This inspection is not cached for offline use.");
+      setResult(found);
+    } catch (e: any) {
+      setMessage(e.message);
+    }
+  };
   const changeQty = (id: string, quantity: number) =>
     setSession((current) =>
       quantity <= 0
@@ -1885,6 +1939,18 @@ function ScanIntelligence({ user }: any) {
     receive: "Receive supplier stock with a complete audit trail",
     inspect: "See product performance, risk, and history",
   };
+  const createInternalBarcode = () => {
+    const body = `20${Date.now().toString().slice(-10)}`,
+      sum = body
+        .split("")
+        .reduce(
+          (total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1),
+          0,
+        ),
+      barcode = `${body}${(10 - (sum % 10)) % 10}`;
+    setUnknown({ found: false, barcode, source: "OikonOS internal label" });
+    setResult(undefined);
+  };
   return (
     <>
       <Header
@@ -1892,9 +1958,16 @@ function ScanIntelligence({ user }: any) {
         title="One scan. Complete business context."
         subtitle={modeText[mode]}
         action={
-          <button className="primary" onClick={() => setScanning(true)}>
-            <I.ScanBarcode /> Scan product
-          </button>
+          <div className="header-actions">
+            {user.role !== "seller" && (
+              <button className="secondary" onClick={createInternalBarcode}>
+                <I.Tags /> Create label
+              </button>
+            )}
+            <button className="primary" onClick={() => setScanning(true)}>
+              <I.ScanBarcode /> Scan product
+            </button>
+          </div>
         }
       />
       {!online && (
@@ -1926,6 +1999,7 @@ function ScanIntelligence({ user }: any) {
                 setMode(key);
                 setSession({});
                 setResult(undefined);
+                setUnknown(undefined);
                 setMessage("");
               }}
               key={key}
@@ -1954,7 +2028,16 @@ function ScanIntelligence({ user }: any) {
       )}
       <div className="scan-workspace">
         <section className="scan-primary">
-          {!result ? (
+          {unknown ? (
+            <UnknownProduct
+              lookup={unknown}
+              user={user}
+              done={async () => {
+                setUnknown(undefined);
+                await scan(unknown.barcode);
+              }}
+            />
+          ) : !result ? (
             <button className="scan-empty" onClick={() => setScanning(true)}>
               <I.ScanBarcode />
               <b>Ready to scan</b>
@@ -2074,6 +2157,41 @@ function ScanIntelligence({ user }: any) {
           </aside>
         )}
       </div>
+      {history.length > 0 && (
+        <section className="recent-scans">
+          <div className="section-title">
+            <div>
+              <h3>Recent scans</h3>
+              <p>
+                Reopen a recent product inspection without finding the barcode
+                again.
+              </p>
+            </div>
+            <I.History />
+          </div>
+          <div>
+            {history.map((item) => (
+              <button
+                key={item.barcode}
+                onClick={() => void openRecent(item.barcode)}
+              >
+                <div className="product-icon">
+                  <I.Package />
+                </div>
+                <span>
+                  <b>{item.name}</b>
+                  <small>
+                    {item.sku} ·{" "}
+                    {new Date(item.scannedAt).toLocaleString("en-NG")}
+                  </small>
+                </span>
+                <strong>{item.stock} in stock</strong>
+                <I.ChevronRight />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {scanning && (
         <BarcodeScanner
           close={() => setScanning(false)}
@@ -2082,6 +2200,172 @@ function ScanIntelligence({ user }: any) {
         />
       )}
     </>
+  );
+}
+function UnknownProduct({ lookup, user, done }: any) {
+  const candidate = lookup.candidate || {};
+  const [form, setForm] = useState({
+      name: candidate.name || "",
+      sku: "",
+      category: candidate.category || "",
+      price: "",
+      cost: "",
+      stock: "0",
+      threshold: "5",
+    }),
+    [saving, setSaving] = useState(false),
+    [error, setError] = useState("");
+  const submit = async (e: any) => {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api("/products", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          barcode: lookup.barcode,
+          price: Number(form.price),
+          cost: Number(form.cost),
+          stock: Number(form.stock),
+          threshold: Number(form.threshold),
+        }),
+      });
+      await done();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (user.role === "seller")
+    return (
+      <div className="unknown-product seller-unknown">
+        <I.CircleHelp />
+        <h2>Product not in this catalogue</h2>
+        <p>
+          Barcode {lookup.barcode} must be reviewed and added by a manager
+          before it can be sold.
+        </p>
+      </div>
+    );
+  return (
+    <div className="unknown-product">
+      <div className="unknown-head">
+        {candidate.image ? (
+          <img src={candidate.image} alt="" />
+        ) : (
+          <div>
+            <I.PackageSearch />
+          </div>
+        )}
+        <span>
+          <small>
+            {lookup.found ? "PRODUCT CANDIDATE FOUND" : "UNKNOWN BARCODE"}
+          </small>
+          <h2>{candidate.name || "Add this product to OikonOS"}</h2>
+          <p>
+            {candidate.brand
+              ? `${candidate.brand}${candidate.quantity ? ` · ${candidate.quantity}` : ""}`
+              : `Barcode ${lookup.barcode}`}
+          </p>
+        </span>
+      </div>
+      <div className="lookup-notice">
+        <I.Database />
+        <span>
+          <b>Review before saving</b>
+          <small>
+            {lookup.found
+              ? `Suggested identity supplied by ${lookup.source}. Confirm every business field below; OikonOS will not create it automatically.`
+              : `${lookup.source} did not supply product details. Enter the real product information below.`}
+          </small>
+        </span>
+      </div>
+      {error && <div className="error">{error}</div>}
+      <form className="form unknown-form" onSubmit={submit}>
+        <label className="full">
+          Product name
+          <input
+            required
+            minLength={2}
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+        </label>
+        <label>
+          SKU
+          <input
+            required
+            minLength={2}
+            value={form.sku}
+            onChange={(e) => setForm({ ...form, sku: e.target.value })}
+          />
+        </label>
+        <label>
+          Category
+          <input
+            required
+            value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
+          />
+        </label>
+        <label>
+          Selling price
+          <input
+            required
+            type="number"
+            min="0"
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: e.target.value })}
+          />
+        </label>
+        <label>
+          Cost price
+          <input
+            required
+            type="number"
+            min="0"
+            value={form.cost}
+            onChange={(e) => setForm({ ...form, cost: e.target.value })}
+          />
+        </label>
+        <label>
+          Opening stock
+          <input
+            required
+            type="number"
+            min="0"
+            step="1"
+            value={form.stock}
+            onChange={(e) => setForm({ ...form, stock: e.target.value })}
+          />
+        </label>
+        <label>
+          Low-stock threshold
+          <input
+            required
+            type="number"
+            min="0"
+            step="1"
+            value={form.threshold}
+            onChange={(e) => setForm({ ...form, threshold: e.target.value })}
+          />
+        </label>
+        <div className="full barcode-assignment">
+          <I.ScanBarcode />
+          <span>
+            <small>Assigned barcode</small>
+            <b>{lookup.barcode}</b>
+          </span>
+        </div>
+        <div className="form-actions full">
+          <button className="primary" disabled={saving}>
+            {saving ? "Adding product…" : "Approve and add product"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 function ProductIntelligence({ data }: any) {

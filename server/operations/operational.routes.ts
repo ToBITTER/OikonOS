@@ -196,8 +196,69 @@ export function createOperationalRouter(auth: RequestHandler) {
       next(e);
     }
   });
+  r.get("/barcode-lookup/:barcode", async (req: any, res, next) => {
+    try {
+      const barcode = String(req.params.barcode).trim();
+      if (!/^\d{6,18}$/.test(barcode))
+        return res
+          .status(400)
+          .json({ message: "This barcode format is not supported." });
+      const fields = [
+        "code",
+        "product_name",
+        "brands",
+        "categories",
+        "image_front_small_url",
+        "quantity",
+      ].join(",");
+      const response = await fetch(
+        `https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(barcode)}?fields=${fields}`,
+        {
+          headers: {
+            "User-Agent": "OikonOS/1.0 (https://oikonos.onrender.com)",
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(7000),
+        },
+      );
+      if (!response.ok)
+        throw new Error("The product directory is temporarily unavailable.");
+      const body: any = await response.json();
+      if (body.result?.id !== "product_found" || !body.product)
+        return res.json({ found: false, barcode, source: "Open Food Facts" });
+      const product = body.product;
+      res.json({
+        found: true,
+        barcode,
+        source: "Open Food Facts",
+        candidate: {
+          name: product.product_name || "",
+          brand: product.brands || "",
+          category: String(product.categories || "")
+            .split(",")[0]
+            .trim(),
+          quantity: product.quantity || "",
+          image: product.image_front_small_url || "",
+        },
+      });
+    } catch (e: any) {
+      if (e?.name === "TimeoutError")
+        return res
+          .status(504)
+          .json({
+            message: "Product lookup timed out. You can still add it manually.",
+          });
+      next(e);
+    }
+  });
   r.post("/products", async (req: any, res, next) => {
     try {
+      if (req.user.role === "seller")
+        return res
+          .status(403)
+          .json({
+            message: "Seller accounts cannot create catalogue products.",
+          });
       const x = productInput.parse(req.body);
       const result = await transaction(async (c) => {
         const org = req.user.organizationId,
