@@ -4,6 +4,7 @@ import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import * as I from "lucide-react";
 import readXlsxFile from "read-excel-file/browser";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import JsBarcode from "jsbarcode";
 import "./styles.css";
 import "./mobile.css";
 
@@ -1747,14 +1748,48 @@ function ScanIntelligence({ user }: any) {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [payment, setPayment] = useState<"cash" | "pos">("cash"),
-    [supplier, setSupplier] = useState("");
+    [supplier, setSupplier] = useState(""),
+    [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const connected = () => setOnline(true),
+      disconnected = () => setOnline(false);
+    window.addEventListener("online", connected);
+    window.addEventListener("offline", disconnected);
+    return () => {
+      window.removeEventListener("online", connected);
+      window.removeEventListener("offline", disconnected);
+    };
+  }, []);
+  useEffect(() => {
+    const saved = localStorage.getItem(`oikonos:scan-session:${mode}`);
+    try {
+      setSession(saved ? JSON.parse(saved) : {});
+    } catch {
+      setSession({});
+    }
+  }, [mode]);
+  useEffect(() => {
+    localStorage.setItem(
+      `oikonos:scan-session:${mode}`,
+      JSON.stringify(session),
+    );
+  }, [mode, session]);
   const scan = async (barcode: string) => {
-    setScanning(false);
+    if (mode === "inspect") setScanning(false);
     setMessage("");
     try {
-      const found = await api(
-        `/scan-intelligence/${encodeURIComponent(barcode)}`,
-      );
+      let found: any;
+      try {
+        found = await api(`/scan-intelligence/${encodeURIComponent(barcode)}`);
+        localStorage.setItem(
+          `oikonos:scan-cache:${barcode}`,
+          JSON.stringify(found),
+        );
+      } catch (requestError) {
+        const cached = localStorage.getItem(`oikonos:scan-cache:${barcode}`);
+        if (!navigator.onLine && cached) found = JSON.parse(cached);
+        else throw requestError;
+      }
       setResult(found);
       if (mode !== "inspect") {
         const p = found.product;
@@ -1784,6 +1819,12 @@ function ScanIntelligence({ user }: any) {
     );
   const finish = async () => {
     if (!items.length || busy) return;
+    if (!navigator.onLine) {
+      setMessage(
+        "This scan session is saved on this phone. Reconnect before submitting it safely.",
+      );
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -1856,6 +1897,18 @@ function ScanIntelligence({ user }: any) {
           </button>
         }
       />
+      {!online && (
+        <div className="offline-banner">
+          <I.WifiOff />
+          <span>
+            <b>Offline scanning</b>
+            <small>
+              Your session is saved on this phone. Submission will unlock after
+              reconnection.
+            </small>
+          </span>
+        </div>
+      )}
       <div className="scan-mode-tabs">
         {allowed.map((key) => {
           const Icon =
@@ -2022,13 +2075,37 @@ function ScanIntelligence({ user }: any) {
         )}
       </div>
       {scanning && (
-        <BarcodeScanner close={() => setScanning(false)} onScan={scan} />
+        <BarcodeScanner
+          close={() => setScanning(false)}
+          onScan={scan}
+          continuous={mode !== "inspect"}
+        />
       )}
     </>
   );
 }
 function ProductIntelligence({ data }: any) {
   const { product: p, intelligence: x } = data;
+  const barcodeRef = React.useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (barcodeRef.current && p.barcode)
+      JsBarcode(barcodeRef.current, p.barcode, {
+        format: "CODE128",
+        displayValue: true,
+        fontSize: 13,
+        height: 48,
+        margin: 8,
+      });
+  }, [p.barcode]);
+  const printLabel = () => {
+    if (!barcodeRef.current) return;
+    const popup = window.open("", "_blank", "width=520,height=520");
+    if (!popup) return;
+    popup.document.write(
+      `<!doctype html><html><head><title>${p.name} barcode label</title><style>@page{size:62mm 40mm;margin:2mm}body{font-family:Arial,sans-serif;margin:0;display:grid;place-items:center}.label{width:58mm;text-align:center;padding:2mm}.label h1{font-size:13px;margin:0 0 2px}.label p{font-size:10px;margin:0 0 2px;color:#444}.label strong{display:block;font-size:14px;margin-top:2px}svg{max-width:100%;height:auto}@media print{button{display:none}}</style></head><body><div class="label"><h1>${String(p.name).replace(/[<>&]/g, "")}</h1><p>${String(p.sku).replace(/[<>&]/g, "")}</p>${barcodeRef.current.outerHTML}<strong>${money(p.price)}</strong></div><button onclick="window.print()">Print label</button><script>window.onload=()=>window.print()<\/script></body></html>`,
+    );
+    popup.document.close();
+  };
   return (
     <div className="intelligence-card">
       <div className="intelligence-title">
@@ -2043,7 +2120,13 @@ function ProductIntelligence({ data }: any) {
           </em>
         </span>
         <strong>{money(p.price)}</strong>
+        {p.barcode && (
+          <button className="secondary label-print" onClick={printLabel}>
+            <I.Printer /> Print label
+          </button>
+        )}
       </div>
+      <svg ref={barcodeRef} className="barcode-preview" />
       <div className="intelligence-metrics">
         <span>
           <small>Available stock</small>
@@ -2143,14 +2226,51 @@ function ProductIntelligence({ data }: any) {
 function BarcodeScanner({
   close,
   onScan,
+  continuous = false,
 }: {
   close: () => void;
-  onScan: (code: string) => void;
+  onScan: (code: string) => void | Promise<void>;
+  continuous?: boolean;
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null),
     controlsRef = React.useRef<any>(null),
+    lastScanRef = React.useRef({ code: "", at: 0 }),
     [status, setStatus] = useState("Starting camera…"),
-    [manual, setManual] = useState("");
+    [manual, setManual] = useState(""),
+    [scanCount, setScanCount] = useState(0);
+  const beep = () => {
+    try {
+      const AudioContext =
+        window.AudioContext || (window as any).webkitAudioContext;
+      const context = new AudioContext(),
+        oscillator = context.createOscillator(),
+        gain = context.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.08, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.1);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.1);
+    } catch {}
+  };
+  const accept = async (code: string) => {
+    const now = Date.now(),
+      last = lastScanRef.current;
+    if (last.code === code && now - last.at < 1500) {
+      setStatus(
+        "Duplicate read ignored — move the product away, then scan again",
+      );
+      return;
+    }
+    lastScanRef.current = { code, at: now };
+    navigator.vibrate?.(80);
+    beep();
+    setStatus("Adding product…");
+    await onScan(code);
+    setScanCount((count) => count + 1);
+    if (continuous) setStatus("Added — scan the next product");
+    else controlsRef.current?.stop();
+  };
   useEffect(() => {
     let active = true;
     const start = async () => {
@@ -2163,10 +2283,8 @@ function BarcodeScanner({
           videoRef.current!,
           (result) => {
             if (result && active) {
-              active = false;
-              navigator.vibrate?.(80);
-              controlsRef.current?.stop();
-              onScan(result.getText());
+              if (!continuous) active = false;
+              void accept(result.getText());
             }
           },
         );
@@ -2188,10 +2306,13 @@ function BarcodeScanner({
           .getTracks()
           .forEach((t) => t.stop());
     };
-  }, []);
-  const submit = (e: any) => {
+  }, [continuous]);
+  const submit = async (e: any) => {
     e.preventDefault();
-    if (/^\d{6,18}$/.test(manual)) onScan(manual);
+    if (/^\d{6,18}$/.test(manual)) {
+      await accept(manual);
+      setManual("");
+    }
   };
   return (
     <div className="overlay scanner-overlay">
@@ -2199,7 +2320,7 @@ function BarcodeScanner({
         <div className="scanner-head">
           <div>
             <span>BARCODE SCANNER</span>
-            <h2>Scan a product</h2>
+            <h2>{continuous ? "Continuous scan session" : "Scan a product"}</h2>
           </div>
           <button onClick={close}>
             <I.X />
@@ -2215,6 +2336,7 @@ function BarcodeScanner({
             <span></span>
           </div>
           <p>{status}</p>
+          {continuous && <b className="scan-counter">{scanCount} scans</b>}
         </div>
         <form className="manual-barcode" onSubmit={submit}>
           <label>

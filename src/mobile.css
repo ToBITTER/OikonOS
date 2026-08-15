@@ -1104,3 +1104,59 @@
     min-height: 330px;
   }
 }
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  margin-bottom: 15px;
+  border: 1px solid #f1d56c;
+  border-radius: 10px;
+  background: #fff8dc;
+  color: #795e08;
+}
+.offline-banner svg {
+  width: 20px;
+}
+.offline-banner span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.offline-banner small {
+  font-size: 10px;
+}
+.scan-counter {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  background: var(--yellow);
+  color: var(--navy);
+  padding: 6px 9px;
+  border-radius: 20px;
+  font-size: 10px;
+}
+.camera-view {
+  position: relative;
+}
+.barcode-preview {
+  display: block;
+  max-width: 260px;
+  height: 75px;
+  margin: 14px auto 0;
+}
+.label-print {
+  height: 36px;
+}
+.intelligence-title .label-print svg {
+  width: 15px;
+}
+@media (max-width: 600px) {
+  .intelligence-title .label-print {
+    width: 100%;
+    order: 5;
+  }
+  .barcode-preview {
+    max-width: 100%;
+  }
+}
