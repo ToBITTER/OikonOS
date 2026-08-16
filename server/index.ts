@@ -4,12 +4,14 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import path from "node:path";
+import { createHash, randomBytes } from "node:crypto";
 import { get, id, load, save } from "./store.js";
 import * as authRepo from "./identity/auth.repository.js";
 import { createOperationalRouter } from "./operations/operational.routes.js";
 import { pool, transaction as dbTransaction } from "./platform/database.js";
 import { queueEmail } from "./notifications/notification.service.js";
 import { startEmailWorker } from "./notifications/email.worker.js";
+import { startBriefingWorker } from "./notifications/briefing.worker.js";
 load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
@@ -173,6 +175,36 @@ app.post("/api/auth/register", async (req, res) => {
     fail(res, e);
   }
 });
+app.post("/api/auth/accept-invite", async (req, res) => {
+  try {
+    if (!persistentAuth)
+      throw new Error("Invitations require the production database.");
+    const input = z
+      .object({ token: z.string().min(32), password: passwordSchema })
+      .parse(req.body);
+    const tokenHash = createHash("sha256").update(input.token).digest("hex");
+    const accepted = await dbTransaction(async (client) => {
+      const token = await client.query(
+        `SELECT t.id,t.user_id FROM password_reset_tokens t WHERE t.token_hash=$1 AND t.used_at IS NULL AND t.expires_at>now() FOR UPDATE`,
+        [tokenHash],
+      );
+      if (!token.rowCount)
+        throw new Error("This invitation is invalid or has expired.");
+      await client.query(
+        `UPDATE users SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()),updated_at=now() WHERE id=$1`,
+        [token.rows[0].user_id, bcrypt.hashSync(input.password, 12)],
+      );
+      await client.query(
+        `UPDATE password_reset_tokens SET used_at=now() WHERE id=$1`,
+        [token.rows[0].id],
+      );
+      return true;
+    });
+    res.json({ accepted, message: "Password created. You can now sign in." });
+  } catch (e) {
+    fail(res, e);
+  }
+});
 app.get("/api/me", auth, async (req: any, res) => {
   if (persistentAuth) {
     const current = await authRepo.findById(
@@ -218,15 +250,38 @@ app.post("/api/staff", auth, async (req: any, res) => {
         })
         .parse(req.body),
       d = get();
-    if (persistentAuth)
-      return res.status(201).json(
-        await authRepo.createStaff(req.user.organizationId, {
-          name: x.name,
-          email: x.email,
-          password: x.temporaryPassword,
-          role: x.role,
-        }),
-      );
+    if (persistentAuth) {
+      const created = await authRepo.createStaff(req.user.organizationId, {
+        name: x.name,
+        email: x.email,
+        password: x.temporaryPassword,
+        role: x.role,
+      });
+      const rawToken = randomBytes(32).toString("hex"),
+        tokenHash = createHash("sha256").update(rawToken).digest("hex"),
+        inviteUrl = `${process.env.APP_URL || "https://oikonos.onrender.com"}/?invite=${rawToken}`;
+      await dbTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')`,
+          [created.id, tokenHash],
+        );
+        await queueEmail(client, {
+          organizationId: req.user.organizationId,
+          recipientUserId: created.id,
+          recipientEmail: created.email,
+          event: "member.invited",
+          payload: {
+            name: created.name,
+            businessName: created.businessName,
+            role: created.role,
+            inviterName: req.user.name,
+            url: inviteUrl,
+          },
+          deduplicationKey: `member.invited:${created.id}:${Date.now()}`,
+        });
+      });
+      return res.status(201).json(created);
+    }
     if (d.users.some((u) => u.email.toLowerCase() === x.email.toLowerCase()))
       throw new Error("A staff account with this email already exists.");
     const user = {
@@ -292,11 +347,9 @@ app.patch("/api/staff/:id", auth, async (req: any, res) => {
 });
 app.get("/api/email/status", auth, async (req: any, res) => {
   if (!persistentAuth || req.user.role !== "owner")
-    return res
-      .status(403)
-      .json({
-        message: "Only the business owner can view email delivery status.",
-      });
+    return res.status(403).json({
+      message: "Only the business owner can view email delivery status.",
+    });
   const counts = await pool.query(
     `SELECT status,count(*)::int count FROM notification_outbox WHERE organization_id=$1 AND channel='email' GROUP BY status`,
     [req.user.organizationId],
@@ -305,7 +358,29 @@ app.get("/api/email/status", auth, async (req: any, res) => {
     `SELECT event_type "eventType",recipient_address recipient,status,attempts,last_error "lastError",created_at "createdAt",sent_at "sentAt" FROM notification_outbox WHERE organization_id=$1 AND channel='email' ORDER BY created_at DESC LIMIT 20`,
     [req.user.organizationId],
   );
-  res.json({ counts: counts.rows, recent: recent.rows });
+  const preference = await pool.query(
+    `SELECT email_enabled FROM notification_preferences WHERE organization_id=$1 AND user_id=$2 AND event_type='owner.daily_briefing'`,
+    [req.user.organizationId, req.user.id],
+  );
+  res.json({
+    counts: counts.rows,
+    recent: recent.rows,
+    briefingEnabled: preference.rows[0]?.email_enabled ?? true,
+  });
+});
+app.put("/api/email/briefing", auth, async (req: any, res) => {
+  if (!persistentAuth || req.user.role !== "owner")
+    return res
+      .status(403)
+      .json({
+        message: "Only the business owner can change briefing delivery.",
+      });
+  const input = z.object({ enabled: z.boolean() }).parse(req.body);
+  await pool.query(
+    `INSERT INTO notification_preferences(organization_id,user_id,event_type,email_enabled,in_app_enabled,minimum_severity) VALUES($1,$2,'owner.daily_briefing',$3,true,'info') ON CONFLICT(organization_id,user_id,event_type) DO UPDATE SET email_enabled=EXCLUDED.email_enabled,updated_at=now()`,
+    [req.user.organizationId, req.user.id, input.enabled],
+  );
+  res.json({ briefingEnabled: input.enabled });
 });
 app.post("/api/email/test", auth, async (req: any, res) => {
   if (!persistentAuth || req.user.role !== "owner")
@@ -874,5 +949,8 @@ app.listen(Number(process.env.PORT) || 4000, () => {
   console.log(
     `OikonOS API running on port ${Number(process.env.PORT) || 4000}`,
   );
-  if (persistentAuth) startEmailWorker();
+  if (persistentAuth) {
+    startEmailWorker();
+    startBriefingWorker();
+  }
 });

@@ -78,6 +78,18 @@ export function renderEmail(event: NotificationEvent, p: any) {
       body = esc(p.message);
       action = p.url;
       break;
+    case "member.invited":
+      subject = `You were invited to ${business} on OikonOS`;
+      heading = "Set up your staff account";
+      body = `${esc(p.inviterName)} invited you to join ${business} as ${esc(p.role)}. This secure setup link expires in 48 hours.`;
+      action = p.url;
+      break;
+    case "owner.daily_briefing":
+      subject = `${business}: yesterday's business briefing`;
+      heading = "Your daily owner briefing";
+      body = `Yesterday: ${money(p.revenue)} revenue, ${money(p.netProfit)} net profit, and ${esc(p.transactions)} completed transactions. ${esc(p.lowStock)} products need stock attention, ${esc(p.adjustments)} stock adjustments were recorded, and the top-selling product was ${esc(p.topProduct || "not yet available")}.`;
+      action = p.url;
+      break;
     default:
       subject = "OikonOS activity notification";
       heading = "Business activity recorded";

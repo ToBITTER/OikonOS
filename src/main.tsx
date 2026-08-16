@@ -334,6 +334,114 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
     </main>
   );
 }
+function AcceptInvite({ token }: { token: string }) {
+  const [password, setPassword] = useState(""),
+    [confirm, setConfirm] = useState(""),
+    [visible, setVisible] = useState(false),
+    [message, setMessage] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const valid =
+    password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    password === confirm;
+  const submit = async (e: any) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/auth/accept-invite", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
+      });
+      setMessage(result.message);
+      window.history.replaceState({}, "", "/");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="invite-page">
+      <section>
+        <Logo />
+        <span className="eyebrow">SECURE STAFF INVITATION</span>
+        <h1>Create your password</h1>
+        <p>
+          Complete your OikonOS account setup. This link expires after 48 hours
+          and can only be used once.
+        </p>
+        {message ? (
+          <div className="invite-complete">
+            <I.CheckCircle />
+            <h2>Account ready</h2>
+            <p>{message}</p>
+            <button
+              className="primary"
+              onClick={() => window.location.reload()}
+            >
+              Continue to sign in
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            {error && (
+              <div className="error">
+                <I.CircleAlert />
+                {error}
+              </div>
+            )}
+            <label>
+              New password
+              <div className="password-input">
+                <input
+                  type={visible ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button type="button" onClick={() => setVisible(!visible)}>
+                  {visible ? <I.EyeOff /> : <I.Eye />}
+                </button>
+              </div>
+            </label>
+            <label>
+              Confirm password
+              <input
+                type={visible ? "text" : "password"}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </label>
+            <div className="password-rules">
+              <span className={password.length >= 8 ? "met" : ""}>
+                8+ characters
+              </span>
+              <span
+                className={
+                  /[A-Z]/.test(password) && /[a-z]/.test(password) ? "met" : ""
+                }
+              >
+                Upper & lowercase
+              </span>
+              <span className={/\d/.test(password) ? "met" : ""}>
+                One number
+              </span>
+              <span className={password && password === confirm ? "met" : ""}>
+                Passwords match
+              </span>
+            </div>
+            <button className="primary wide" disabled={!valid || busy}>
+              {busy ? "Creating password…" : "Create password"}
+            </button>
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}
 const nav = [
   ["Overview", I.LayoutDashboard, "/"],
   ["Point of sale", I.ScanLine, "/pos"],
@@ -3216,6 +3324,17 @@ function Settings({ user }: any) {
       setTestingEmail(false);
     }
   };
+  const toggleBriefing = async () => {
+    try {
+      const result = await api("/email/briefing", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: !emailStatus?.briefingEnabled }),
+      });
+      setEmailStatus((current: any) => ({ ...current, ...result }));
+    } catch (e: any) {
+      setEmailMessage(e.message);
+    }
+  };
   const update = async (member: any, changes: any) => {
     setError("");
     try {
@@ -3287,6 +3406,28 @@ function Settings({ user }: any) {
             <I.RefreshCw />
           </button>
           {emailMessage && <p>{emailMessage}</p>}
+          {emailStatus && (
+            <div className="briefing-control">
+              <span>
+                <I.Sunrise />
+                <span>
+                  <b>Daily owner briefing</b>
+                  <small>
+                    Delivered after 7:00 AM with yesterday’s revenue, profit,
+                    stock attention and adjustments.
+                  </small>
+                </span>
+              </span>
+              <button
+                className={emailStatus.briefingEnabled ? "toggle on" : "toggle"}
+                aria-label="Toggle daily owner briefing"
+                aria-pressed={emailStatus.briefingEnabled}
+                onClick={toggleBriefing}
+              >
+                <i />
+              </button>
+            </div>
+          )}
           {emailStatus?.recent?.find((x: any) => x.status === "failed") && (
             <div className="email-failure">
               <I.TriangleAlert />
@@ -3615,6 +3756,7 @@ function Page({ path, user }: any) {
   return <Reports />;
 }
 function App() {
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
   const [user, setUser] = useState<any>(() => {
     try {
       return JSON.parse(localStorage.getItem("user") || "null");
@@ -3627,6 +3769,7 @@ function App() {
     window.addEventListener("oikonos:session-expired", expired);
     return () => window.removeEventListener("oikonos:session-expired", expired);
   }, []);
+  if (inviteToken) return <AcceptInvite token={inviteToken} />;
   if (!user) return <Login onLogin={setUser} />;
   return (
     <Shell

@@ -13,5 +13,6 @@ export const notificationEvents = {
   "member.invited": { severity: "info", audience: "actor" },
   "member.role_changed": { severity: "warning", audience: "actor" },
   "settings.changed": { severity: "warning", audience: "admins" },
+  "owner.daily_briefing": { severity: "info", audience: "admins" },
 } as const;
 export type NotificationEvent = keyof typeof notificationEvents;

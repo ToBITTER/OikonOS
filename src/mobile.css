@@ -2,6 +2,50 @@
 .nav-scrim {
   display: none;
 }
+.briefing-control {
+  grid-column: 1/-1;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--mist);
+  padding-top: 13px;
+}
+.briefing-control > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.briefing-control > span > svg {
+  width: 20px;
+  color: var(--yellow);
+}
+.briefing-control > span > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.toggle {
+  width: 42px;
+  height: 24px;
+  border: 0;
+  border-radius: 20px;
+  background: #ccd3de;
+  padding: 3px;
+}
+.toggle i {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: 0.2s;
+}
+.toggle.on {
+  background: var(--green);
+}
+.toggle.on i {
+  transform: translateX(18px);
+}
 .crash-screen {
   min-height: 100dvh;
   background: var(--paper);
@@ -1424,4 +1468,101 @@
   .email-delivery-card > .icon-btn {
     grid-column: 2;
   }
+}
+.invite-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #edf2fb, #fff);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.invite-page > section {
+  width: min(470px, 100%);
+  background: #fff;
+  border: 1px solid var(--mist);
+  border-radius: 16px;
+  padding: 30px;
+  box-shadow: 0 24px 70px #172e7018;
+}
+.invite-page .logo {
+  color: var(--navy);
+  margin-bottom: 35px;
+}
+.invite-page .logo svg {
+  stroke: var(--navy);
+}
+.invite-page h1 {
+  font-size: 31px;
+  margin: 9px 0;
+}
+.invite-page > section > p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 22px;
+}
+.invite-page form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 14px 0;
+}
+.invite-page input {
+  height: 47px;
+  border: 1px solid #ccd4e1;
+  border-radius: 9px;
+  padding: 0 12px;
+  width: 100%;
+}
+.invite-page .password-input {
+  position: relative;
+}
+.invite-page .password-input button {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 35px;
+  height: 35px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.invite-page .password-input svg {
+  width: 17px;
+}
+.password-rules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 12px 0;
+}
+.password-rules span {
+  font-size: 9px;
+  color: var(--muted);
+}
+.password-rules span:before {
+  content: "○";
+  margin-right: 5px;
+}
+.password-rules span.met {
+  color: var(--green);
+}
+.password-rules span.met:before {
+  content: "✓";
+}
+.invite-complete {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 25px 0;
+}
+.invite-complete > svg {
+  width: 45px;
+  color: var(--green);
+}
+.invite-complete p {
+  color: var(--muted);
 }
