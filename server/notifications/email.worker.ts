@@ -11,9 +11,7 @@ function resendApiKey() {
   const c = config();
   return (
     c.RESEND_API_KEY ||
-    (c.SMTP_HOST === "smtp.resend.com" && c.SMTP_PASSWORD?.startsWith("re_")
-      ? c.SMTP_PASSWORD
-      : undefined)
+    (c.SMTP_PASSWORD?.startsWith("re_") ? c.SMTP_PASSWORD : undefined)
   );
 }
 function transport() {
