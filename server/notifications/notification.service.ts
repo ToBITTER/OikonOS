@@ -32,13 +32,18 @@ export async function queueAdminEmails(
   client: pg.PoolClient,
   input: Omit<Publish, "recipientEmail" | "recipientUserId">,
 ) {
-  const recipients = await client.query<{ id: string; email: string }>(
-    `SELECT u.id,u.email FROM organization_memberships m JOIN users u ON u.id=m.user_id LEFT JOIN notification_preferences p ON p.organization_id=m.organization_id AND p.user_id=u.id AND p.event_type=$2 WHERE m.organization_id=$1 AND m.status='active' AND m.role IN ('owner','admin') AND u.status='active' AND COALESCE(p.email_enabled,true)=true`,
+  const recipients = await client.query<{
+    id: string;
+    email: string;
+    business_name: string;
+  }>(
+    `SELECT u.id,u.email,o.name business_name FROM organization_memberships m JOIN users u ON u.id=m.user_id JOIN organizations o ON o.id=m.organization_id LEFT JOIN notification_preferences p ON p.organization_id=m.organization_id AND p.user_id=u.id AND p.event_type=$2 WHERE m.organization_id=$1 AND m.status='active' AND m.role IN ('owner','admin') AND u.status='active' AND COALESCE(p.email_enabled,true)=true`,
     [input.organizationId, input.event],
   );
   for (const recipient of recipients.rows)
     await queueEmail(client, {
       ...input,
+      payload: { businessName: recipient.business_name, ...input.payload },
       recipientUserId: recipient.id,
       recipientEmail: recipient.email,
       deduplicationKey: `${input.deduplicationKey}:${recipient.id}`,

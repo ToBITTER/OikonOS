@@ -100,6 +100,7 @@ app.post("/api/auth/login", async (req, res) => {
         recipientEmail: u.email,
         event: "auth.new_login",
         payload: {
+          businessName: u.businessName,
           time: new Date().toLocaleString("en-NG", {
             timeZone: "Africa/Lagos",
           }),
@@ -387,20 +388,25 @@ app.post("/api/email/test", auth, async (req: any, res) => {
     return res
       .status(403)
       .json({ message: "Only the business owner can send a test email." });
-  await dbTransaction(async (client) =>
-    queueEmail(client, {
+  await dbTransaction(async (client) => {
+    const business = await client.query(
+      `SELECT name FROM organizations WHERE id=$1`,
+      [req.user.organizationId],
+    );
+    await queueEmail(client, {
       organizationId: req.user.organizationId,
       recipientUserId: req.user.id,
       recipientEmail: req.user.email,
       event: "settings.changed",
       payload: {
+        businessName: business.rows[0]?.name,
         actorName: req.user.name,
         setting: "Email delivery test",
         actionUrl: process.env.APP_URL || "https://oikonos.onrender.com",
       },
       deduplicationKey: `email-test:${req.user.id}:${Date.now()}`,
-    }),
-  );
+    });
+  });
   res.status(202).json({ message: `Test email queued for ${req.user.email}.` });
 });
 // Public authentication and protected staff routes must be registered before
