@@ -3347,6 +3347,19 @@ function Settings({ user }: any) {
       setError(e.message);
     }
   };
+  const resendOnboarding = async (member: any) => {
+    setError("");
+    setEmailMessage("");
+    try {
+      const result = await api(`/staff/${member.id}/resend-onboarding`, {
+        method: "POST",
+      });
+      setEmailMessage(result.message);
+      setTimeout(loadEmailStatus, 1500);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
   return (
     <>
       <Header
@@ -3553,17 +3566,25 @@ function Settings({ user }: any) {
                         Protected
                       </span>
                     ) : user.role === "owner" ? (
-                      <button
-                        className={`table-action ${member.status === "active" ? "deactivate" : ""}`}
-                        onClick={() =>
-                          update(member, {
-                            status:
-                              member.status === "active"
-                                ? "inactive"
-                                : "active",
-                          })
-                        }
-                      >
+                      <div className="staff-actions">
+                        <button
+                          className="table-action"
+                          onClick={() => resendOnboarding(member)}
+                        >
+                          <I.MailPlus />
+                          Resend onboarding
+                        </button>
+                        <button
+                          className={`table-action ${member.status === "active" ? "deactivate" : ""}`}
+                          onClick={() =>
+                            update(member, {
+                              status:
+                                member.status === "active"
+                                  ? "inactive"
+                                  : "active",
+                            })
+                          }
+                        >
                         {member.status === "active" ? (
                           <>
                             <I.UserX />
@@ -3575,7 +3596,8 @@ function Settings({ user }: any) {
                             Reactivate
                           </>
                         )}
-                      </button>
+                        </button>
+                      </div>
                     ) : (
                       "—"
                     )}

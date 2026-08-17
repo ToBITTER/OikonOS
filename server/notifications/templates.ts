@@ -145,8 +145,8 @@ export function renderEmail(event: NotificationEvent, p: any) {
       label = "Staff invitation";
       symbol = "+";
       action = p.url;
-      actionLabel = "Set up my account";
-      details = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:20px;border-top:1px solid #E4EAF5;border-bottom:1px solid #E4EAF5">${detailRow("Business", businessName)}${detailRow("Your role", p.role || "Staff")}${detailRow("Invite expires", "In 48 hours")}</table>`;
+      actionLabel = "Change password & activate account";
+      details = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:20px;border-top:1px solid #E4EAF5;border-bottom:1px solid #E4EAF5">${detailRow("Business", businessName)}${detailRow("Your role", p.role || "Staff")}${detailRow("Login email", p.loginEmail || "Use this email address")}${detailRow("Temporary password", p.temporaryPassword || "Already supplied by your owner")}${detailRow("Setup link expires", "In 48 hours")}</table><div style="margin-top:18px;padding:14px 16px;background:#FFF8E0;border-left:3px solid #F9C321;border-radius:8px;color:#5E4B0B;font-size:13px;line-height:20px"><strong>Action required:</strong> Use the button below to replace the temporary password before signing in. Workspace access remains locked until setup is complete.</div>`;
       break;
     case "owner.daily_briefing":
       subject = `${businessName}: yesterday’s business briefing`;

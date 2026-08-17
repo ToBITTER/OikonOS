@@ -85,6 +85,12 @@ app.post("/api/auth/login", async (req, res) => {
     bcrypt.compareSync(parsed.data.password, hash);
   if (!u || u.status === "inactive" || !passwordIsValid)
     return res.status(401).json({ message: "Email or password is incorrect." });
+  if (persistentAuth && u.mustChangePassword)
+    return res.status(403).json({
+      code: "PASSWORD_CHANGE_REQUIRED",
+      message:
+        "Finish setting up your account from the onboarding email before signing in.",
+    });
   const user = {
     id: u.id,
     name: u.name,
@@ -192,7 +198,7 @@ app.post("/api/auth/accept-invite", async (req, res) => {
       if (!token.rowCount)
         throw new Error("This invitation is invalid or has expired.");
       await client.query(
-        `UPDATE users SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()),updated_at=now() WHERE id=$1`,
+        `UPDATE users SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()),must_change_password=false,updated_at=now() WHERE id=$1`,
         [token.rows[0].user_id, bcrypt.hashSync(input.password, 12)],
       );
       await client.query(
@@ -275,6 +281,8 @@ app.post("/api/staff", auth, async (req: any, res) => {
             name: created.name,
             businessName: created.businessName,
             role: created.role,
+            loginEmail: created.email,
+            temporaryPassword: x.temporaryPassword,
             inviterName: req.user.name,
             url: inviteUrl,
           },
@@ -298,6 +306,66 @@ app.post("/api/staff", auth, async (req: any, res) => {
     save();
     const { password, ...result } = user;
     res.status(201).json(result);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+app.post("/api/staff/:id/resend-onboarding", auth, async (req: any, res) => {
+  try {
+    if (!persistentAuth)
+      throw new Error("Staff onboarding requires the production database.");
+    if (req.user.role !== "owner")
+      return res.status(403).json({
+        message: "Only the business owner can resend staff onboarding.",
+      });
+    const temporaryPassword = `Oi${randomBytes(6).toString("base64url")}9!`;
+    const rawToken = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    const inviteUrl = `${process.env.APP_URL || "https://oikonos.onrender.com"}/?invite=${rawToken}`;
+    const member = await dbTransaction(async (client) => {
+      const found = await client.query(
+        `SELECT u.id,u.email,trim(concat(u.first_name,' ',u.last_name)) name,m.role,o.name business_name
+         FROM users u
+         JOIN organization_memberships m ON m.user_id=u.id
+         JOIN organizations o ON o.id=m.organization_id
+         WHERE u.id=$1 AND m.organization_id=$2 AND m.role<>'owner' LIMIT 1`,
+        [req.params.id, req.user.organizationId],
+      );
+      if (!found.rowCount) throw new Error("Staff member was not found.");
+      const staff = found.rows[0];
+      await client.query(
+        `UPDATE users SET password_hash=$2,must_change_password=true,updated_at=now() WHERE id=$1`,
+        [staff.id, bcrypt.hashSync(temporaryPassword, 12)],
+      );
+      await client.query(
+        `UPDATE password_reset_tokens SET used_at=now() WHERE user_id=$1 AND used_at IS NULL`,
+        [staff.id],
+      );
+      await client.query(
+        `INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')`,
+        [staff.id, tokenHash],
+      );
+      await queueEmail(client, {
+        organizationId: req.user.organizationId,
+        recipientUserId: staff.id,
+        recipientEmail: staff.email,
+        event: "member.invited",
+        payload: {
+          name: staff.name,
+          businessName: staff.business_name,
+          role: staff.role,
+          loginEmail: staff.email,
+          temporaryPassword,
+          inviterName: req.user.name,
+          url: inviteUrl,
+        },
+        deduplicationKey: `member.invited:${staff.id}:resend:${Date.now()}`,
+      });
+      return staff;
+    });
+    res.json({
+      message: `A fresh onboarding email has been queued for ${member.email}.`,
+    });
   } catch (e) {
     fail(res, e);
   }

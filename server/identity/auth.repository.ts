@@ -8,6 +8,7 @@ export type AuthUser = {
   status: "active" | "inactive";
   organizationId: string;
   businessName: string;
+  mustChangePassword: boolean;
   createdAt: string;
 };
 const map = (r: any): AuthUser => ({
@@ -21,9 +22,10 @@ const map = (r: any): AuthUser => ({
       : "inactive",
   organizationId: r.organization_id,
   businessName: r.business_name,
+  mustChangePassword: Boolean(r.must_change_password),
   createdAt: r.created_at,
 });
-const select = `SELECT u.id,u.email,u.password_hash,u.first_name,u.last_name,u.status user_status,u.created_at,m.organization_id,m.role,m.status membership_status,o.name business_name FROM users u JOIN organization_memberships m ON m.user_id=u.id JOIN organizations o ON o.id=m.organization_id`;
+const select = `SELECT u.id,u.email,u.password_hash,u.first_name,u.last_name,u.status user_status,u.created_at,u.must_change_password,m.organization_id,m.role,m.status membership_status,o.name business_name FROM users u JOIN organization_memberships m ON m.user_id=u.id JOIN organizations o ON o.id=m.organization_id`;
 export async function findByEmail(email: string) {
   const r = await query(
     `${select} WHERE lower(u.email)=lower($1) AND o.status='active' ORDER BY m.joined_at LIMIT 1`,
@@ -126,7 +128,7 @@ export async function createStaff(
         firstName = parts.shift()!,
         lastName = parts.join(" ");
       const created = await c.query(
-        `INSERT INTO users(email,password_hash,first_name,last_name) VALUES($1,$2,$3,$4) RETURNING id`,
+        `INSERT INTO users(email,password_hash,first_name,last_name,must_change_password) VALUES($1,$2,$3,$4,true) RETURNING id`,
         [
           input.email,
           await bcrypt.hash(input.password, 12),
