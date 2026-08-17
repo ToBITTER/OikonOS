@@ -85,12 +85,6 @@ app.post("/api/auth/login", async (req, res) => {
     bcrypt.compareSync(parsed.data.password, hash);
   if (!u || u.status === "inactive" || !passwordIsValid)
     return res.status(401).json({ message: "Email or password is incorrect." });
-  if (persistentAuth && u.mustChangePassword)
-    return res.status(403).json({
-      code: "PASSWORD_CHANGE_REQUIRED",
-      message:
-        "Finish setting up your account from the onboarding email before signing in.",
-    });
   const user = {
     id: u.id,
     name: u.name,
@@ -98,6 +92,21 @@ app.post("/api/auth/login", async (req, res) => {
     role: u.role,
     organizationId: u.organizationId,
   };
+  if (persistentAuth && u.mustChangePassword)
+    return res.json({
+      passwordChangeRequired: true,
+      passwordChangeToken: jwt.sign(
+        {
+          id: u.id,
+          organizationId: u.organizationId,
+          purpose: "first-login-password-change",
+        },
+        secret,
+        { expiresIn: "15m" },
+      ),
+      user,
+      business: { name: u.businessName, currency: "NGN" },
+    });
   if (persistentAuth)
     void dbTransaction((client) =>
       queueEmail(client, {
@@ -122,6 +131,42 @@ app.post("/api/auth/login", async (req, res) => {
       ? { name: u.businessName, currency: "NGN" }
       : get().business,
   });
+});
+app.post("/api/auth/complete-first-login", async (req, res) => {
+  try {
+    if (!persistentAuth)
+      throw new Error("First-login setup requires the production database.");
+    const input = z
+      .object({ token: z.string().min(20), password: passwordSchema })
+      .parse(req.body);
+    const claims: any = jwt.verify(input.token, secret);
+    if (claims.purpose !== "first-login-password-change")
+      throw new Error("This password setup session is invalid.");
+    const current = await authRepo.findById(claims.id, claims.organizationId);
+    if (!current || current.status !== "active" || !current.mustChangePassword)
+      throw new Error("This password setup session has expired or was completed.");
+    await pool.query(
+      `UPDATE users
+       SET password_hash=$2,must_change_password=false,
+           email_verified_at=COALESCE(email_verified_at,now()),updated_at=now()
+       WHERE id=$1`,
+      [current.id, bcrypt.hashSync(input.password, 12)],
+    );
+    const user = {
+      id: current.id,
+      name: current.name,
+      email: current.email,
+      role: current.role,
+      organizationId: current.organizationId,
+    };
+    res.json({
+      token: jwt.sign(user, secret, { expiresIn: "12h" }),
+      user,
+      business: { name: current.businessName, currency: "NGN" },
+    });
+  } catch (e) {
+    fail(res, e);
+  }
 });
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -264,14 +309,8 @@ app.post("/api/staff", auth, async (req: any, res) => {
         password: x.temporaryPassword,
         role: x.role,
       });
-      const rawToken = randomBytes(32).toString("hex"),
-        tokenHash = createHash("sha256").update(rawToken).digest("hex"),
-        inviteUrl = `${process.env.APP_URL || "https://oikonos.onrender.com"}/?invite=${rawToken}`;
+      const inviteUrl = process.env.APP_URL || "https://oikonos.onrender.com";
       await dbTransaction(async (client) => {
-        await client.query(
-          `INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')`,
-          [created.id, tokenHash],
-        );
         await queueEmail(client, {
           organizationId: req.user.organizationId,
           recipientUserId: created.id,
@@ -319,9 +358,7 @@ app.post("/api/staff/:id/resend-onboarding", auth, async (req: any, res) => {
         message: "Only the business owner can resend staff onboarding.",
       });
     const temporaryPassword = `Oi${randomBytes(6).toString("base64url")}9!`;
-    const rawToken = randomBytes(32).toString("hex");
-    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-    const inviteUrl = `${process.env.APP_URL || "https://oikonos.onrender.com"}/?invite=${rawToken}`;
+    const inviteUrl = process.env.APP_URL || "https://oikonos.onrender.com";
     const member = await dbTransaction(async (client) => {
       const found = await client.query(
         `SELECT u.id,u.email,trim(concat(u.first_name,' ',u.last_name)) name,m.role,o.name business_name
@@ -340,10 +377,6 @@ app.post("/api/staff/:id/resend-onboarding", auth, async (req: any, res) => {
       await client.query(
         `UPDATE password_reset_tokens SET used_at=now() WHERE user_id=$1 AND used_at IS NULL`,
         [staff.id],
-      );
-      await client.query(
-        `INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')`,
-        [staff.id, tokenHash],
       );
       await queueEmail(client, {
         organizationId: req.user.organizationId,

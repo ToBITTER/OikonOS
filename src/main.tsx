@@ -147,7 +147,8 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
     [name, setName] = useState(""),
     [businessName, setBusinessName] = useState(""),
     [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [passwordChange, setPasswordChange] = useState<any>(null);
   const submit = async (e: any) => {
     e.preventDefault();
     if (register && password !== confirmPassword) {
@@ -165,6 +166,11 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
             : { email: email.trim(), password },
         ),
       });
+      if (d.passwordChangeRequired) {
+        setPasswordChange(d);
+        setPassword("");
+        return;
+      }
       const current = {
         ...d.user,
         businessName: d.business?.name || businessName,
@@ -178,6 +184,14 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
       setLoading(false);
     }
   };
+  if (passwordChange)
+    return (
+      <FirstLoginPassword
+        challenge={passwordChange}
+        onComplete={onLogin}
+        onCancel={() => setPasswordChange(null)}
+      />
+    );
   return (
     <main className="login">
       <section className="login-story">
@@ -329,6 +343,73 @@ function Login({ onLogin }: { onLogin: (x: any) => void }) {
               ? "Already have an account? Sign in"
               : "New to OikonOS? Create your workspace"}
           </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+function FirstLoginPassword({ challenge, onComplete, onCancel }: any) {
+  const [password, setPassword] = useState(""),
+    [confirm, setConfirm] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [visible, setVisible] = useState(false);
+  const submit = async (event: any) => {
+    event.preventDefault();
+    if (password !== confirm) return setError("Passwords do not match.");
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/auth/complete-first-login", {
+        method: "POST",
+        body: JSON.stringify({
+          token: challenge.passwordChangeToken,
+          password,
+        }),
+      });
+      const current = {
+        ...result.user,
+        businessName: result.business?.name,
+      };
+      localStorage.setItem("token", result.token);
+      localStorage.setItem("user", JSON.stringify(current));
+      onComplete(current);
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="invite-page">
+      <section>
+        <Logo />
+        <span className="eyebrow">FIRST SIGN-IN</span>
+        <h1>Create your private password</h1>
+        <p>
+          Your temporary password was correct. Replace it now before entering
+          {` ${challenge.business?.name || "the business"}`} workspace.
+        </p>
+        <form onSubmit={submit}>
+          {error && <div className="error"><I.CircleAlert />{error}</div>}
+          <label>
+            New password
+            <div className="password-input">
+              <input required minLength={8} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} type={visible ? "text" : "password"} autoComplete="new-password" />
+              <button type="button" onClick={() => setVisible(!visible)}>{visible ? <I.EyeOff /> : <I.Eye />}</button>
+            </div>
+          </label>
+          <div className="password-rules">
+            <span className={password.length >= 8 ? "met" : ""}><I.Check />8 characters</span>
+            <span className={/[A-Z]/.test(password) ? "met" : ""}><I.Check />Uppercase</span>
+            <span className={/[a-z]/.test(password) ? "met" : ""}><I.Check />Lowercase</span>
+            <span className={/[0-9]/.test(password) ? "met" : ""}><I.Check />Number</span>
+          </div>
+          <label>
+            Confirm new password
+            <input required minLength={8} maxLength={128} value={confirm} onChange={(e) => setConfirm(e.target.value)} type={visible ? "text" : "password"} autoComplete="new-password" />
+          </label>
+          <button className="primary wide" disabled={busy}>{busy ? "Securing account…" : "Save password and continue"}<I.ArrowRight /></button>
+          <button type="button" className="auth-switch" onClick={onCancel}>Return to sign in</button>
         </form>
       </section>
     </main>
@@ -3586,6 +3667,7 @@ function Settings({ user }: any) {
                       <div className="staff-actions">
                         {user.role === "owner" && (
                         <button
+                          type="button"
                           className="table-action"
                           onClick={() => resendOnboarding(member)}
                         >
@@ -3595,6 +3677,7 @@ function Settings({ user }: any) {
                         )}
                         {user.role === "owner" && (
                         <button
+                          type="button"
                           className={`table-action ${member.status === "active" ? "deactivate" : ""}`}
                           onClick={() =>
                             update(member, {
@@ -3620,6 +3703,7 @@ function Settings({ user }: any) {
                         )}
                         {member.role === "seller" && (
                           <button
+                            type="button"
                             className="table-action delete"
                             onClick={() => deleteSeller(member)}
                           >
