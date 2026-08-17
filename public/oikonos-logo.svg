@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OikonOS">
+  <rect width="64" height="64" rx="14" fill="#F9C321"/>
+  <path d="M6 32 32 10l26 22" fill="none" stroke="#172F72" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="14" y="32" width="36" height="24" rx="3" fill="none" stroke="#172F72" stroke-width="5"/>
+  <path d="M32 32v24" fill="none" stroke="#172F72" stroke-width="5" stroke-linecap="round"/>
+</svg>

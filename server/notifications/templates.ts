@@ -39,6 +39,7 @@ export function renderEmail(event: NotificationEvent, p: any) {
     .replace(/[\r\n]+/g, " ")
     .trim();
   const business = esc(businessName);
+  const logoUrl = `${String(process.env.APP_URL || "https://oikonos.onrender.com").replace(/\/$/, "")}/oikonos-logo.svg`;
   let subject = "";
   let heading = "";
   let body = "";
@@ -190,7 +191,7 @@ export function renderEmail(event: NotificationEvent, p: any) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
             <td class="brand-cell" style="vertical-align:middle">
               <table role="presentation" cellspacing="0" cellpadding="0"><tr>
-                <td align="center" valign="middle" style="width:40px;height:40px;background:#F9C321;border-radius:11px;color:#172F72;font-size:21px;font-weight:900">O</td>
+                <td align="center" valign="middle" style="width:40px;height:40px"><img src="${esc(logoUrl)}" width="40" height="40" alt="OikonOS logo" style="display:block;width:40px;height:40px;border:0;border-radius:9px"></td>
                 <td style="padding-left:12px;color:#FFFFFF"><div style="font-size:20px;line-height:24px;font-weight:800;letter-spacing:-.02em">OikonOS</div><div style="font-size:10px;line-height:15px;color:#BFCDF0;text-transform:uppercase;letter-spacing:.12em">Business control</div></td>
               </tr></table>
             </td>

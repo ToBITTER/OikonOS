@@ -85,9 +85,18 @@ export async function processEmailBatch(limit = 20) {
     });
     for (const job of jobs) {
       try {
+        const payload = { ...(job.payload || {}) };
+        if (job.organization_id) {
+          const organization = await pool.query<{ name: string }>(
+            "SELECT name FROM organizations WHERE id=$1 LIMIT 1",
+            [job.organization_id],
+          );
+          if (organization.rows[0]?.name)
+            payload.businessName = organization.rows[0].name;
+        }
         const rendered = renderEmail(
           job.template as NotificationEvent,
-          job.payload,
+          payload,
         );
         const providerId = useResendApi
           ? await sendWithResend(job, rendered)
