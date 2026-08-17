@@ -121,8 +121,8 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const x = z
       .object({
-        name: z.string().min(2),
-        businessName: z.string().min(2),
+        name: z.string().trim().min(2),
+        businessName: z.string().trim().min(2),
         email: z
           .string()
           .trim()
@@ -240,7 +240,7 @@ app.post("/api/staff", auth, async (req: any, res) => {
         .json({ message: "Only the business owner can add staff." });
     const x = z
         .object({
-          name: z.string().min(2),
+          name: z.string().trim().min(2),
           email: z
             .string()
             .trim()

@@ -64,7 +64,7 @@ export async function registerOwner(input: {
       throw new Error("An account with this email already exists.");
     const parts = input.name.trim().split(/\s+/),
       firstName = parts.shift()!,
-      lastName = parts.join(" ") || null;
+      lastName = parts.join(" ");
     const user = await c.query(
       `INSERT INTO users(email,password_hash,first_name,last_name,email_verified_at) VALUES($1,$2,$3,$4,NULL) RETURNING id,email,first_name,last_name,status,created_at`,
       [input.email, await bcrypt.hash(input.password, 12), firstName, lastName],
@@ -124,7 +124,7 @@ export async function createStaff(
     } else {
       const parts = input.name.trim().split(/\s+/),
         firstName = parts.shift()!,
-        lastName = parts.join(" ") || null;
+        lastName = parts.join(" ");
       const created = await c.query(
         `INSERT INTO users(email,password_hash,first_name,last_name) VALUES($1,$2,$3,$4) RETURNING id`,
         [
