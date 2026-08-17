@@ -414,6 +414,39 @@ app.patch("/api/staff/:id", auth, async (req: any, res) => {
     fail(res, e);
   }
 });
+app.delete("/api/staff/:id", auth, async (req: any, res) => {
+  try {
+    if (req.user.role !== "owner" && req.user.role !== "manager")
+      return res.status(403).json({
+        message: "Only an owner or manager can delete a seller.",
+      });
+    if (req.params.id === req.user.id)
+      return res.status(400).json({
+        message: "You cannot delete your own account.",
+      });
+    if (persistentAuth) {
+      const removed = await authRepo.removeSeller(
+        req.user.organizationId,
+        req.params.id,
+      );
+      return res.json({
+        message: `${removed.name || removed.email} was removed from the business.`,
+      });
+    }
+    const d = get();
+    const index = d.users.findIndex((member) => member.id === req.params.id);
+    if (index < 0) throw new Error("Seller was not found.");
+    if (d.users[index].role !== "seller")
+      throw new Error("Only Seller accounts can be deleted here.");
+    const [removed] = d.users.splice(index, 1);
+    save();
+    return res.json({
+      message: `${removed.name || removed.email} was removed from the business.`,
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
 app.get("/api/email/status", auth, async (req: any, res) => {
   if (!persistentAuth || req.user.role !== "owner")
     return res.status(403).json({

@@ -166,3 +166,25 @@ export async function updateStaff(
     );
   return findById(userId, organizationId);
 }
+
+export async function removeSeller(organizationId: string, userId: string) {
+  return transaction(async (client) => {
+    const member = await client.query(
+      `SELECT u.id,u.email,trim(concat(u.first_name,' ',u.last_name)) name,m.role
+       FROM organization_memberships m
+       JOIN users u ON u.id=m.user_id
+       WHERE m.organization_id=$1 AND m.user_id=$2
+       FOR UPDATE`,
+      [organizationId, userId],
+    );
+    if (!member.rowCount) throw new Error("Seller was not found.");
+    if (member.rows[0].role !== "seller")
+      throw new Error("Only Seller accounts can be deleted here.");
+    await client.query(
+      `DELETE FROM organization_memberships
+       WHERE organization_id=$1 AND user_id=$2 AND role='seller'`,
+      [organizationId, userId],
+    );
+    return member.rows[0];
+  });
+}

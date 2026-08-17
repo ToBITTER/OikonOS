@@ -3360,6 +3360,22 @@ function Settings({ user }: any) {
       setError(e.message);
     }
   };
+  const deleteSeller = async (member: any) => {
+    if (
+      !window.confirm(
+        `Delete ${member.name} as a seller? They will immediately lose access, but their historical sales and stock activity will remain.`,
+      )
+    )
+      return;
+    setError("");
+    try {
+      const result = await api(`/staff/${member.id}`, { method: "DELETE" });
+      setEmailMessage(result.message);
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
   return (
     <>
       <Header
@@ -3565,8 +3581,10 @@ function Settings({ user }: any) {
                         <I.Lock />
                         Protected
                       </span>
-                    ) : user.role === "owner" ? (
+                    ) : user.role === "owner" ||
+                      (user.role === "manager" && member.role === "seller") ? (
                       <div className="staff-actions">
+                        {user.role === "owner" && (
                         <button
                           className="table-action"
                           onClick={() => resendOnboarding(member)}
@@ -3574,6 +3592,8 @@ function Settings({ user }: any) {
                           <I.MailPlus />
                           Resend onboarding
                         </button>
+                        )}
+                        {user.role === "owner" && (
                         <button
                           className={`table-action ${member.status === "active" ? "deactivate" : ""}`}
                           onClick={() =>
@@ -3597,6 +3617,16 @@ function Settings({ user }: any) {
                           </>
                         )}
                         </button>
+                        )}
+                        {member.role === "seller" && (
+                          <button
+                            className="table-action delete"
+                            onClick={() => deleteSeller(member)}
+                          >
+                            <I.Trash2 />
+                            Delete seller
+                          </button>
+                        )}
                       </div>
                     ) : (
                       "—"
