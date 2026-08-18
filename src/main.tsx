@@ -1939,6 +1939,7 @@ function ScanIntelligence({ user }: any) {
     [busy, setBusy] = useState(false),
     [payment, setPayment] = useState<"cash" | "pos">("cash"),
     [supplier, setSupplier] = useState(""),
+    [countReason, setCountReason] = useState("Physical shelf count"),
     [online, setOnline] = useState(navigator.onLine),
     [history, setHistory] = useState<any[]>(() => {
       try {
@@ -2054,7 +2055,7 @@ function ScanIntelligence({ user }: any) {
   };
   const changeQty = (id: string, quantity: number) =>
     setSession((current) =>
-      quantity <= 0
+      quantity < 0 || (quantity === 0 && mode !== "stock")
         ? Object.fromEntries(
             Object.entries(current).filter(([key]) => key !== id),
           )
@@ -2081,20 +2082,22 @@ function ScanIntelligence({ user }: any) {
         });
         setMessage(`Sale ${sale.number} completed successfully.`);
       } else if (mode === "stock") {
-        const changed = items.filter((x) => x.quantity !== x.stock);
-        if (!changed.length)
-          throw new Error("Every physical count matches the recorded stock.");
-        for (const item of changed)
-          await api(`/products/${item.id}/adjust-stock`, {
-            method: "POST",
-            body: JSON.stringify({
-              physicalCount: item.quantity,
-              type: "count",
-              reason: "Physical count completed with Scan Intelligence",
-            }),
-          });
+        if (countReason.trim().length < 3)
+          throw new Error("Add a reason for this physical count.");
+        const count = await api("/scan-intelligence/stock-counts", {
+          method: "POST",
+          body: JSON.stringify({
+            reason: countReason,
+            items: items.map((item) => ({
+              productId: item.id,
+              countedQuantity: item.quantity,
+            })),
+          }),
+        });
         setMessage(
-          `${changed.length} stock count${changed.length === 1 ? "" : "s"} reconciled.`,
+          count.varianceCount
+            ? `Count completed: ${count.varianceCount} variance${count.varianceCount === 1 ? "" : "s"} reconciled across ${count.productCount} products.`
+            : `Count completed: all ${count.productCount} products matched recorded stock.`,
         );
       } else if (mode === "receive") {
         if (supplier.trim().length < 2)
@@ -2207,7 +2210,8 @@ function ScanIntelligence({ user }: any) {
           className={
             message.includes("success") ||
             message.includes("reconciled") ||
-            message.includes("received")
+            message.includes("received") ||
+            message.includes("Count completed")
               ? "success"
               : "error"
           }
@@ -2267,6 +2271,22 @@ function ScanIntelligence({ user }: any) {
                 />
               </label>
             )}
+            {mode === "stock" && items.length > 0 && (
+              <div className="count-summary">
+                <span>
+                  <small>Products counted</small>
+                  <b>{items.length}</b>
+                </span>
+                <span>
+                  <small>Discrepancies</small>
+                  <b>{items.filter((item) => item.quantity !== item.stock).length}</b>
+                </span>
+                <span>
+                  <small>Unit variance</small>
+                  <b>{items.reduce((total, item) => total + Math.abs(item.quantity - item.stock), 0)}</b>
+                </span>
+              </div>
+            )}
             <div className="scan-session-items">
               {items.map((item) => (
                 <div className="scan-session-row" key={item.id}>
@@ -2274,7 +2294,7 @@ function ScanIntelligence({ user }: any) {
                     <b>{item.name}</b>
                     <small>
                       {mode === "stock"
-                        ? `Recorded: ${item.stock}`
+                        ? `Recorded: ${item.stock} · Variance: ${item.quantity - item.stock > 0 ? "+" : ""}${item.quantity - item.stock}`
                         : money(item.price)}
                     </small>
                   </span>
@@ -2328,6 +2348,16 @@ function ScanIntelligence({ user }: any) {
                   <option value="cash">Cash</option>
                   <option value="pos">POS / card</option>
                 </select>
+              </label>
+            )}
+            {mode === "stock" && (
+              <label>
+                Count reason
+                <input
+                  value={countReason}
+                  onChange={(event) => setCountReason(event.target.value)}
+                  placeholder="e.g. Weekly shelf count"
+                />
               </label>
             )}
             <button

@@ -919,6 +919,30 @@
   background: transparent;
   color: var(--red);
 }
+.count-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 14px 0 4px;
+}
+.count-summary span {
+  padding: 10px 8px;
+  border: 1px solid var(--mist);
+  border-radius: 8px;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.count-summary small {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.25;
+}
+.count-summary b {
+  color: var(--navy);
+  font: 600 15px "IBM Plex Mono";
+}
 .scan-session > label {
   display: flex;
   flex-direction: column;

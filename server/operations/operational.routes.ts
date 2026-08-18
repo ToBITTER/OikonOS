@@ -557,6 +557,154 @@ export function createOperationalRouter(auth: RequestHandler) {
       next(e);
     }
   });
+  r.post("/scan-intelligence/stock-counts", async (req: any, res, next) => {
+    try {
+      if (req.user.role === "seller")
+        return res.status(403).json({
+          message: "Seller accounts cannot reconcile physical stock counts.",
+        });
+      const input = z
+        .object({
+          reason: z.string().trim().min(3).max(300),
+          items: z
+            .array(
+              z.object({
+                productId: z.string().uuid(),
+                countedQuantity: z.number().int().nonnegative(),
+              }),
+            )
+            .min(1)
+            .max(1000),
+        })
+        .refine(
+          (value) =>
+            new Set(value.items.map((item) => item.productId)).size ===
+            value.items.length,
+          { message: "A product can only appear once in a stock count." },
+        )
+        .parse(req.body);
+      const result = await transaction(async (client) => {
+        const organizationId = req.user.organizationId;
+        const locationId = await location(organizationId, client);
+        const session = await client.query(
+          `INSERT INTO inventory_count_sessions(
+             organization_id,location_id,status,reason,product_count,created_by
+           ) VALUES($1,$2,'draft',$3,$4,$5)
+           RETURNING id,started_at`,
+          [
+            organizationId,
+            locationId,
+            input.reason,
+            input.items.length,
+            req.user.id,
+          ],
+        );
+        const lines: any[] = [];
+        for (const item of input.items) {
+          const locked = await client.query(
+            `SELECT i.quantity::float8 recorded_quantity,p.name
+             FROM inventory_levels i
+             JOIN products p ON p.id=i.product_id
+             WHERE i.organization_id=$1 AND i.location_id=$2 AND i.product_id=$3
+             FOR UPDATE`,
+            [organizationId, locationId, item.productId],
+          );
+          if (!locked.rowCount)
+            throw new Error("A counted product no longer exists in inventory.");
+          const recorded = Number(locked.rows[0].recorded_quantity);
+          const variance = item.countedQuantity - recorded;
+          let movementId: string | null = null;
+          if (variance !== 0) {
+            await client.query(
+              `UPDATE inventory_levels
+               SET quantity=$4,version=version+1,updated_at=now()
+               WHERE organization_id=$1 AND location_id=$2 AND product_id=$3`,
+              [
+                organizationId,
+                locationId,
+                item.productId,
+                item.countedQuantity,
+              ],
+            );
+            const movement = await client.query(
+              `INSERT INTO stock_movements(
+                 organization_id,location_id,product_id,type,quantity,balance_after,
+                 reference_type,reference_id,reason,performed_by
+               ) VALUES($1,$2,$3,'adjustment',$4,$5,'inventory_count',$6,$7,$8)
+               RETURNING id`,
+              [
+                organizationId,
+                locationId,
+                item.productId,
+                variance,
+                item.countedQuantity,
+                session.rows[0].id,
+                input.reason,
+                req.user.id,
+              ],
+            );
+            movementId = movement.rows[0].id;
+            await queueAdminEmails(client, {
+              organizationId,
+              event: "inventory.adjusted",
+              payload: {
+                productName: locked.rows[0].name,
+                actorName: req.user.name,
+                previousStock: recorded,
+                newStock: item.countedQuantity,
+                reason: input.reason,
+                url: `${process.env.APP_URL || "https://oikonos.onrender.com"}/inventory`,
+              },
+              deduplicationKey: `inventory.count:${session.rows[0].id}:${item.productId}`,
+            });
+          }
+          await client.query(
+            `INSERT INTO inventory_count_lines(
+               session_id,product_id,recorded_quantity,counted_quantity,variance,movement_id
+             ) VALUES($1,$2,$3,$4,$5,$6)`,
+            [
+              session.rows[0].id,
+              item.productId,
+              recorded,
+              item.countedQuantity,
+              variance,
+              movementId,
+            ],
+          );
+          lines.push({
+            productId: item.productId,
+            productName: locked.rows[0].name,
+            recordedQuantity: recorded,
+            countedQuantity: item.countedQuantity,
+            variance,
+          });
+        }
+        const changed = lines.filter((line) => line.variance !== 0);
+        const totalUnitVariance = changed.reduce(
+          (total, line) => total + Math.abs(line.variance),
+          0,
+        );
+        await client.query(
+          `UPDATE inventory_count_sessions
+           SET status='completed',variance_count=$2,total_unit_variance=$3,completed_at=now()
+           WHERE id=$1`,
+          [session.rows[0].id, changed.length, totalUnitVariance],
+        );
+        return {
+          id: session.rows[0].id,
+          status: "completed",
+          productCount: lines.length,
+          varianceCount: changed.length,
+          totalUnitVariance,
+          countedBy: req.user.name,
+          lines,
+        };
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
   r.post("/scan-intelligence/receive", async (req: any, res, next) => {
     try {
       if (req.user.role === "seller")
