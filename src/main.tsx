@@ -1940,6 +1940,8 @@ function ScanIntelligence({ user }: any) {
     [payment, setPayment] = useState<"cash" | "pos">("cash"),
     [supplier, setSupplier] = useState(""),
     [countReason, setCountReason] = useState("Physical shelf count"),
+    [countHistory, setCountHistory] = useState<any[]>([]),
+    [selectedCount, setSelectedCount] = useState<any>(),
     [online, setOnline] = useState(navigator.onLine),
     [history, setHistory] = useState<any[]>(() => {
       try {
@@ -1972,6 +1974,49 @@ function ScanIntelligence({ user }: any) {
       JSON.stringify(session),
     );
   }, [mode, session]);
+  const loadCountHistory = () =>
+    api("/scan-intelligence/stock-counts")
+      .then(setCountHistory)
+      .catch((error: any) => setMessage(error.message));
+  useEffect(() => {
+    if (mode === "stock") void loadCountHistory();
+  }, [mode]);
+  const inspectCount = async (id: string) => {
+    try {
+      setSelectedCount(await api(`/scan-intelligence/stock-counts/${id}`));
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  };
+  const reviewCount = async (decision: "approve" | "reject") => {
+    if (!selectedCount) return;
+    const note =
+      decision === "reject"
+        ? window.prompt("Why are you rejecting this stock count?")
+        : undefined;
+    if (decision === "reject" && (!note || note.trim().length < 3)) return;
+    setBusy(true);
+    try {
+      await api(
+        `/scan-intelligence/stock-counts/${selectedCount.id}/${decision}`,
+        {
+          method: "POST",
+          body: JSON.stringify(decision === "reject" ? { note } : {}),
+        },
+      );
+      setSelectedCount(undefined);
+      await loadCountHistory();
+      setMessage(
+        decision === "approve"
+          ? "Stock count approved and inventory reconciled."
+          : "Stock count rejected without changing inventory.",
+      );
+    } catch (error: any) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const scan = async (barcode: string) => {
     if (mode === "inspect") setScanning(false);
     setMessage("");
@@ -2099,6 +2144,7 @@ function ScanIntelligence({ user }: any) {
             ? `Count completed: ${count.varianceCount} variance${count.varianceCount === 1 ? "" : "s"} reconciled across ${count.productCount} products.`
             : `Count completed: all ${count.productCount} products matched recorded stock.`,
         );
+        await loadCountHistory();
       } else if (mode === "receive") {
         if (supplier.trim().length < 2)
           throw new Error("Enter the supplier name before receiving stock.");
@@ -2205,13 +2251,45 @@ function ScanIntelligence({ user }: any) {
           );
         })}
       </div>
+      {mode === "stock" && (
+        <section className="count-history">
+          <div className="section-title">
+            <div>
+              <h3>Physical count history</h3>
+              <p>Review discrepancies, accountability and approval status.</p>
+            </div>
+            <I.ClipboardList />
+          </div>
+          {countHistory.length ? (
+            <div className="count-history-list">
+              {countHistory.map((count) => (
+                <button key={count.id} onClick={() => inspectCount(count.id)}>
+                  <span>
+                    <b>{count.reason}</b>
+                    <small>{count.countedBy} · {new Date(count.completedAt).toLocaleString("en-NG")}</small>
+                  </span>
+                  <span className="count-history-metrics">
+                    <small>{count.productCount} products</small>
+                    <b>{count.varianceCount} variances</b>
+                  </span>
+                  <em className={`count-status ${count.approvalStatus}`}>{count.approvalStatus}</em>
+                  <I.ChevronRight />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Empty icon={I.ClipboardCheck} title="No completed counts yet" text="Your reconciled physical count sessions will appear here." />
+          )}
+        </section>
+      )}
       {message && (
         <div
           className={
             message.includes("success") ||
             message.includes("reconciled") ||
             message.includes("received") ||
-            message.includes("Count completed")
+            message.includes("Count completed") ||
+            message.includes("approved")
               ? "success"
               : "error"
           }
@@ -2417,6 +2495,35 @@ function ScanIntelligence({ user }: any) {
           onScan={scan}
           continuous={mode !== "inspect"}
         />
+      )}
+      {selectedCount && (
+        <Modal title="Stock count investigation" onClose={() => setSelectedCount(undefined)}>
+          <div className="count-investigation">
+            <div className="count-investigation-head">
+              <span><small>Counted by</small><b>{selectedCount.countedBy}</b></span>
+              <span><small>Products</small><b>{selectedCount.productCount}</b></span>
+              <span><small>Variances</small><b>{selectedCount.varianceCount}</b></span>
+              <span><small>Status</small><b className={`count-status ${selectedCount.approvalStatus}`}>{selectedCount.approvalStatus}</b></span>
+            </div>
+            <p>{selectedCount.reason}</p>
+            <div className="count-lines">
+              {selectedCount.lines.map((line: any) => (
+                <div key={line.productId}>
+                  <span><b>{line.productName}</b><small>{line.sku}</small></span>
+                  <small>Recorded <b>{line.recordedQuantity}</b></small>
+                  <small>Counted <b>{line.countedQuantity}</b></small>
+                  <em className={line.variance < 0 ? "negative" : line.variance > 0 ? "positive" : ""}>{line.variance > 0 ? "+" : ""}{line.variance}</em>
+                </div>
+              ))}
+            </div>
+            {user.role === "owner" && selectedCount.approvalStatus === "pending" && (
+              <div className="form-actions">
+                <button className="secondary" disabled={busy} onClick={() => reviewCount("reject")}><I.X /> Reject count</button>
+                <button className="primary" disabled={busy} onClick={() => reviewCount("approve")}><I.Check /> Approve & reconcile</button>
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </>
   );

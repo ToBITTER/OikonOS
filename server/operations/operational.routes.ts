@@ -586,10 +586,11 @@ export function createOperationalRouter(auth: RequestHandler) {
       const result = await transaction(async (client) => {
         const organizationId = req.user.organizationId;
         const locationId = await location(organizationId, client);
+        const requiresApproval = req.user.role !== "owner";
         const session = await client.query(
           `INSERT INTO inventory_count_sessions(
-             organization_id,location_id,status,reason,product_count,created_by
-           ) VALUES($1,$2,'draft',$3,$4,$5)
+             organization_id,location_id,status,reason,product_count,created_by,approval_status
+           ) VALUES($1,$2,'draft',$3,$4,$5,$6)
            RETURNING id,started_at`,
           [
             organizationId,
@@ -597,6 +598,7 @@ export function createOperationalRouter(auth: RequestHandler) {
             input.reason,
             input.items.length,
             req.user.id,
+            requiresApproval ? "pending" : "approved",
           ],
         );
         const lines: any[] = [];
@@ -614,7 +616,7 @@ export function createOperationalRouter(auth: RequestHandler) {
           const recorded = Number(locked.rows[0].recorded_quantity);
           const variance = item.countedQuantity - recorded;
           let movementId: string | null = null;
-          if (variance !== 0) {
+          if (variance !== 0 && !requiresApproval) {
             await client.query(
               `UPDATE inventory_levels
                SET quantity=$4,version=version+1,updated_at=now()
@@ -697,10 +699,139 @@ export function createOperationalRouter(auth: RequestHandler) {
           varianceCount: changed.length,
           totalUnitVariance,
           countedBy: req.user.name,
+          approvalStatus: requiresApproval ? "pending" : "approved",
           lines,
         };
       });
       res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+  r.get("/scan-intelligence/stock-counts", async (req: any, res, next) => {
+    try {
+      if (req.user.role === "seller")
+        return res.status(403).json({ message: "Seller accounts cannot view stock counts." });
+      const result = await query(
+        `SELECT s.id,s.status,s.reason,s.product_count "productCount",
+                s.variance_count "varianceCount",s.total_unit_variance::float8 "totalUnitVariance",
+                s.approval_status "approvalStatus",s.completed_at "completedAt",
+                trim(concat(u.first_name,' ',u.last_name)) "countedBy",
+                trim(concat(r.first_name,' ',r.last_name)) "reviewedBy"
+         FROM inventory_count_sessions s
+         JOIN users u ON u.id=s.created_by
+         LEFT JOIN users r ON r.id=s.reviewed_by
+         WHERE s.organization_id=$1
+         ORDER BY s.completed_at DESC NULLS LAST LIMIT 50`,
+        [req.user.organizationId],
+      );
+      res.json(result.rows);
+    } catch (error) {
+      next(error);
+    }
+  });
+  r.get("/scan-intelligence/stock-counts/:id", async (req: any, res, next) => {
+    try {
+      if (req.user.role === "seller")
+        return res.status(403).json({ message: "Seller accounts cannot view stock counts." });
+      const session = await query(
+        `SELECT s.id,s.reason,s.product_count "productCount",s.variance_count "varianceCount",
+                s.total_unit_variance::float8 "totalUnitVariance",s.approval_status "approvalStatus",
+                s.completed_at "completedAt",s.review_note "reviewNote",
+                trim(concat(u.first_name,' ',u.last_name)) "countedBy"
+         FROM inventory_count_sessions s JOIN users u ON u.id=s.created_by
+         WHERE s.id=$1 AND s.organization_id=$2`,
+        [req.params.id, req.user.organizationId],
+      );
+      if (!session.rowCount) return res.status(404).json({ message: "Stock count not found." });
+      const lines = await query(
+        `SELECT l.product_id "productId",p.name "productName",p.sku,
+                l.recorded_quantity::float8 "recordedQuantity",
+                l.counted_quantity::float8 "countedQuantity",l.variance::float8 variance
+         FROM inventory_count_lines l JOIN products p ON p.id=l.product_id
+         WHERE l.session_id=$1 ORDER BY abs(l.variance) DESC,p.name`,
+        [req.params.id],
+      );
+      res.json({ ...session.rows[0], lines: lines.rows });
+    } catch (error) {
+      next(error);
+    }
+  });
+  r.post("/scan-intelligence/stock-counts/:id/approve", async (req: any, res, next) => {
+    try {
+      if (req.user.role !== "owner")
+        return res.status(403).json({ message: "Only the owner can approve stock variances." });
+      const result = await transaction(async (client) => {
+        const session = await client.query(
+          `SELECT * FROM inventory_count_sessions
+           WHERE id=$1 AND organization_id=$2 FOR UPDATE`,
+          [req.params.id, req.user.organizationId],
+        );
+        if (!session.rowCount) throw new Error("Stock count not found.");
+        if (session.rows[0].approval_status !== "pending")
+          throw new Error("This stock count is no longer awaiting approval.");
+        const lines = await client.query(
+          `SELECT l.*,p.name FROM inventory_count_lines l
+           JOIN products p ON p.id=l.product_id WHERE l.session_id=$1 ORDER BY p.name`,
+          [req.params.id],
+        );
+        for (const line of lines.rows) {
+          if (Number(line.variance) === 0) continue;
+          const inventory = await client.query(
+            `SELECT quantity::float8 FROM inventory_levels
+             WHERE organization_id=$1 AND location_id=$2 AND product_id=$3 FOR UPDATE`,
+            [req.user.organizationId, session.rows[0].location_id, line.product_id],
+          );
+          if (Number(inventory.rows[0]?.quantity) !== Number(line.recorded_quantity))
+            throw new Error(`${line.name} changed after this count. Recount it before approval.`);
+          await client.query(
+            `UPDATE inventory_levels SET quantity=$4,version=version+1,updated_at=now()
+             WHERE organization_id=$1 AND location_id=$2 AND product_id=$3`,
+            [req.user.organizationId, session.rows[0].location_id, line.product_id, line.counted_quantity],
+          );
+          const movement = await client.query(
+            `INSERT INTO stock_movements(organization_id,location_id,product_id,type,quantity,balance_after,reference_type,reference_id,reason,performed_by)
+             VALUES($1,$2,$3,'adjustment',$4,$5,'inventory_count',$6,$7,$8) RETURNING id`,
+            [req.user.organizationId,session.rows[0].location_id,line.product_id,line.variance,line.counted_quantity,session.rows[0].id,session.rows[0].reason,req.user.id],
+          );
+          await client.query(`UPDATE inventory_count_lines SET movement_id=$2 WHERE id=$1`, [line.id, movement.rows[0].id]);
+          await queueAdminEmails(client, {
+            organizationId: req.user.organizationId,
+            event: "inventory.adjusted",
+            payload: {
+              productName: line.name,
+              actorName: `${req.user.name} (approved stock count)`,
+              previousStock: line.recorded_quantity,
+              newStock: line.counted_quantity,
+              reason: session.rows[0].reason,
+              url: `${process.env.APP_URL || "https://oikonos.onrender.com"}/inventory`,
+            },
+            deduplicationKey: `inventory.count.approved:${session.rows[0].id}:${line.product_id}`,
+          });
+        }
+        await client.query(
+          `UPDATE inventory_count_sessions SET approval_status='approved',reviewed_by=$2,reviewed_at=now() WHERE id=$1`,
+          [req.params.id, req.user.id],
+        );
+        return { id: req.params.id, approvalStatus: "approved" };
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+  r.post("/scan-intelligence/stock-counts/:id/reject", async (req: any, res, next) => {
+    try {
+      if (req.user.role !== "owner")
+        return res.status(403).json({ message: "Only the owner can reject stock variances." });
+      const input = z.object({ note: z.string().trim().min(3).max(300) }).parse(req.body);
+      const result = await query(
+        `UPDATE inventory_count_sessions SET approval_status='rejected',reviewed_by=$3,reviewed_at=now(),review_note=$4
+         WHERE id=$1 AND organization_id=$2 AND approval_status='pending' RETURNING id`,
+        [req.params.id, req.user.organizationId, req.user.id, input.note],
+      );
+      if (!result.rowCount) throw new Error("This stock count is no longer awaiting approval.");
+      res.json({ id: req.params.id, approvalStatus: "rejected" });
     } catch (error) {
       next(error);
     }
