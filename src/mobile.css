@@ -995,6 +995,7 @@
   border-radius: 7px;
   padding: 0 9px;
 }
+.scan-session-row .confirm-zero{grid-column:1/-1;border:1px solid #e5cf75;background:#fff8dc;color:#795e08;border-radius:7px;min-height:32px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px}.scan-session-row .confirm-zero svg,.count-verified svg{width:13px}.count-verified{grid-column:1/-1;color:#087e5d;font-size:9px;font-weight:700;display:flex;align-items:center;gap:5px}
 .intelligence-card {
   padding: 22px;
 }

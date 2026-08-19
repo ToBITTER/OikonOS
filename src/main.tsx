@@ -1942,6 +1942,9 @@ function ScanIntelligence({ user }: any) {
     [countReason, setCountReason] = useState("Physical shelf count"),
     [countHistory, setCountHistory] = useState<any[]>([]),
     [selectedCount, setSelectedCount] = useState<any>(),
+    [fullCount, setFullCount] = useState(
+      localStorage.getItem("oikonos:full-stock-count") === "true",
+    ),
     [online, setOnline] = useState(navigator.onLine),
     [history, setHistory] = useState<any[]>(() => {
       try {
@@ -1974,6 +1977,9 @@ function ScanIntelligence({ user }: any) {
       JSON.stringify(session),
     );
   }, [mode, session]);
+  useEffect(() => {
+    localStorage.setItem("oikonos:full-stock-count", String(fullCount));
+  }, [fullCount]);
   const loadCountHistory = () =>
     api("/scan-intelligence/stock-counts")
       .then(setCountHistory)
@@ -2058,6 +2064,7 @@ function ScanIntelligence({ user }: any) {
             ...p,
             quantity: (current[p.id]?.quantity || 0) + 1,
             unitCost: current[p.id]?.unitCost ?? p.cost,
+            counted: mode === "stock" ? true : current[p.id]?.counted,
           },
         }));
       }
@@ -2104,8 +2111,46 @@ function ScanIntelligence({ user }: any) {
         ? Object.fromEntries(
             Object.entries(current).filter(([key]) => key !== id),
           )
-        : { ...current, [id]: { ...current[id], quantity } },
+        : {
+            ...current,
+            [id]: {
+              ...current[id],
+              quantity,
+              counted: mode === "stock" ? true : current[id].counted,
+            },
+          },
     );
+  const startFullCount = async () => {
+    if (
+      items.length &&
+      !window.confirm(
+        "Starting a full count will replace the current Stock session. Continue?",
+      )
+    )
+      return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const products = await api("/products");
+      if (!products.length) throw new Error("Add products before starting a full count.");
+      setSession(
+        Object.fromEntries(
+          products.map((product: any) => [
+            product.id,
+            { ...product, quantity: 0, counted: false },
+          ]),
+        ),
+      );
+      setFullCount(true);
+      setMessage(
+        `Full count started with ${products.length} products. Scan each item or confirm zero where none are found.`,
+      );
+    } catch (error: any) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const finish = async () => {
     if (!items.length || busy) return;
     if (!navigator.onLine) {
@@ -2127,6 +2172,11 @@ function ScanIntelligence({ user }: any) {
         });
         setMessage(`Sale ${sale.number} completed successfully.`);
       } else if (mode === "stock") {
+        const unchecked = items.filter((item) => !item.counted);
+        if (fullCount && unchecked.length)
+          throw new Error(
+            `${unchecked.length} product${unchecked.length === 1 ? " is" : "s are"} still unverified. Scan each product or confirm a zero count.`,
+          );
         if (countReason.trim().length < 3)
           throw new Error("Add a reason for this physical count.");
         const count = await api("/scan-intelligence/stock-counts", {
@@ -2164,6 +2214,7 @@ function ScanIntelligence({ user }: any) {
         );
       }
       setSession({});
+      if (mode === "stock") setFullCount(false);
       setResult(undefined);
     } catch (e: any) {
       setMessage(e.message);
@@ -2200,6 +2251,11 @@ function ScanIntelligence({ user }: any) {
             {user.role !== "seller" && (
               <button className="secondary" onClick={createInternalBarcode}>
                 <I.Tags /> Create label
+              </button>
+            )}
+            {mode === "stock" && (
+              <button className="secondary" disabled={busy} onClick={startFullCount}>
+                <I.ListChecks /> Full inventory count
               </button>
             )}
             <button className="primary" onClick={() => setScanning(true)}>
@@ -2289,7 +2345,8 @@ function ScanIntelligence({ user }: any) {
             message.includes("reconciled") ||
             message.includes("received") ||
             message.includes("Count completed") ||
-            message.includes("approved")
+            message.includes("approved") ||
+            message.includes("Full count started")
               ? "success"
               : "error"
           }
@@ -2335,7 +2392,13 @@ function ScanIntelligence({ user }: any) {
                   {items.reduce((a, x) => a + x.quantity, 0)} units
                 </small>
               </span>
-              <button onClick={() => setSession({})} disabled={!items.length}>
+              <button
+                onClick={() => {
+                  setSession({});
+                  if (mode === "stock") setFullCount(false);
+                }}
+                disabled={!items.length}
+              >
                 Clear
               </button>
             </div>
@@ -2352,8 +2415,8 @@ function ScanIntelligence({ user }: any) {
             {mode === "stock" && items.length > 0 && (
               <div className="count-summary">
                 <span>
-                  <small>Products counted</small>
-                  <b>{items.length}</b>
+                  <small>{fullCount ? "Products verified" : "Products counted"}</small>
+                  <b>{fullCount ? `${items.filter((item) => item.counted).length}/${items.length}` : items.length}</b>
                 </span>
                 <span>
                   <small>Discrepancies</small>
@@ -2389,6 +2452,22 @@ function ScanIntelligence({ user }: any) {
                       +
                     </button>
                   </div>
+                  {mode === "stock" && fullCount && !item.counted && (
+                    <button
+                      className="confirm-zero"
+                      onClick={() =>
+                        setSession((current) => ({
+                          ...current,
+                          [item.id]: { ...current[item.id], quantity: 0, counted: true },
+                        }))
+                      }
+                    >
+                      <I.Check /> Confirm zero
+                    </button>
+                  )}
+                  {mode === "stock" && fullCount && item.counted && (
+                    <span className="count-verified"><I.CheckCircle2 /> Verified</span>
+                  )}
                   {mode === "receive" && (
                     <input
                       aria-label={`${item.name} unit cost`}
