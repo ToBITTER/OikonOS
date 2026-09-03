@@ -14,6 +14,9 @@ const money = (n = 0) =>
     currency: "NGN",
     maximumFractionDigits: 0,
   }).format(n);
+const PLATFORM_ADMIN_EMAIL = "tobiloba.gbenle@gmail.com";
+const isPlatformAdmin = (user: any) =>
+  user?.email?.trim().toLowerCase() === PLATFORM_ADMIN_EMAIL;
 const api = async (path: string, options: any = {}) => {
   const token = localStorage.getItem("token");
   let r: Response;
@@ -542,14 +545,17 @@ function Shell({ user, onLogout }: { user: any; onLogout: () => void }) {
     go(path);
     setMobileNav(false);
   };
+  const availableNav = isPlatformAdmin(user)
+    ? [...nav, ["User activity", I.Activity, "/platform-users"]]
+    : nav;
   const allowed =
     user.role === "seller"
-      ? nav.filter((x) =>
-          ["Point of sale", "Scan intelligence", "Sales"].includes(
+      ? availableNav.filter((x) =>
+          ["Point of sale", "Scan intelligence", "Sales", "User activity"].includes(
             x[0] as string,
           ),
         )
-      : nav;
+      : availableNav;
   const page = loc.pathname,
     business = user.businessName || "Your business",
     initials = business
@@ -3588,6 +3594,106 @@ function Reports() {
     </>
   );
 }
+function PlatformUsers() {
+  const [data, setData] = useState<{ users: any[]; activities: any[] }>();
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"users" | "activity">("users");
+  const load = () => {
+    setError("");
+    api("/platform/users").then(setData).catch((e: any) => setError(e.message));
+  };
+  useEffect(load, []);
+  const users = (data?.users || []).filter((person) =>
+    [person.name, person.email, person.businessName, person.role]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const activities = (data?.activities || []).filter((item) =>
+    [item.userName, item.businessName, item.type, item.detail]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const when = (value?: string) =>
+    value
+      ? new Date(value).toLocaleString("en-NG", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "No activity yet";
+
+  return (
+    <>
+      <Header
+        eyebrow="PLATFORM ADMINISTRATION"
+        title="Users & activity"
+        subtitle="See who uses OikonOS and the business actions recorded across the platform."
+        action={
+          <button className="secondary" onClick={load}>
+            <I.RefreshCw /> Refresh
+          </button>
+        }
+      />
+      {error && <div className="error"><I.CircleAlert />{error}</div>}
+      {!data && !error ? (
+        <Loader />
+      ) : (
+        <>
+          <div className="summary-strip platform-summary">
+            <span><b>{data?.users.length || 0}</b>Registered users</span>
+            <span><b>{new Set(data?.users.map((x) => x.businessName)).size || 0}</b>Businesses</span>
+            <span><b>{data?.users.filter((x) => x.status === "active" && x.membershipStatus !== "archived").length || 0}</b>Active users</span>
+            <span><b>{data?.activities.length || 0}</b>Recent actions</span>
+          </div>
+          <div className="table-card platform-activity">
+            <div className="toolbar">
+              <div className="search">
+                <I.Search />
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search users, businesses, or activity" />
+              </div>
+              <div className="platform-tabs">
+                <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>Users</button>
+                <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>Activity</button>
+              </div>
+            </div>
+            {tab === "users" ? (
+              <table>
+                <thead><tr><th>User</th><th>Business</th><th>Role</th><th>Status</th><th>Last login</th><th>Last activity</th></tr></thead>
+                <tbody>{users.map((person) => (
+                  <tr key={`${person.id}-${person.businessName || "none"}`}>
+                    <td><b>{person.name}</b><small>{person.email}</small></td>
+                    <td>{person.businessName || "No business"}</td>
+                    <td><span className="pill blue capitalize">{person.role || "None"}</span></td>
+                    <td><span className={`pill ${person.status === "active" && person.membershipStatus !== "archived" ? "green" : "red"}`}>{person.status === "active" && person.membershipStatus !== "archived" ? "Active" : "Inactive"}</span></td>
+                    <td>{when(person.lastLoginAt)}</td>
+                    <td>{when(person.lastActivityAt)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            ) : (
+              <div className="activity-feed">
+                {activities.map((item) => (
+                  <div key={item.id}>
+                    <span className={`activity-icon ${item.type}`}><I.Activity /></span>
+                    <span><b>{item.userName}</b><small>{item.businessName} · {item.detail}</small></span>
+                    <time>{when(item.createdAt)}</time>
+                  </div>
+                ))}
+                {!activities.length && <Empty icon={I.Activity} title="No recorded activity" text="New sales, inventory changes, and expenses will appear here." />}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function Settings({ user }: any) {
   const [staff, setStaff] = useState<any[]>([]),
     [show, setShow] = useState(false),
@@ -4093,6 +4199,8 @@ const ScreenError = ({ message }: { message: string }) => (
   </div>
 );
 function Page({ path, user }: any) {
+  if (path === "/platform-users")
+    return isPlatformAdmin(user) ? <PlatformUsers /> : <Dashboard user={user} />;
   if (user.role === "seller" && !["/pos", "/scan", "/sales"].includes(path))
     return <POS />;
   if (path === "/") return <Dashboard user={user} />;

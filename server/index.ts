@@ -16,6 +16,14 @@ load();
 const app = express();
 const secret = process.env.JWT_SECRET || "oikonos-local-development-secret";
 const persistentAuth = Boolean(process.env.DATABASE_URL);
+const platformAdminEmails = new Set(
+  `tobiloba.gbenle@gmail.com,${process.env.PLATFORM_ADMIN_EMAILS || ""}`
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
+const isPlatformAdmin = (user: { email?: string }) =>
+  platformAdminEmails.has((user.email || "").toLowerCase());
 app.use(cors());
 // Workbook rows are converted to JSON in the browser before upload. A normal
 // 1,000-row stock workbook can exceed Express's 100 KB default body limit.
@@ -85,6 +93,8 @@ app.post("/api/auth/login", async (req, res) => {
     bcrypt.compareSync(parsed.data.password, hash);
   if (!u || u.status === "inactive" || !passwordIsValid)
     return res.status(401).json({ message: "Email or password is incorrect." });
+  if (persistentAuth)
+    await pool.query(`UPDATE users SET last_login_at=now() WHERE id=$1`, [u.id]);
   const user = {
     id: u.id,
     name: u.name,
@@ -282,6 +292,85 @@ app.get("/api/staff", auth, async (req: any, res) => {
       .users.map(({ password, ...user }) => user)
       .sort((a, b) => a.name.localeCompare(b.name)),
   );
+});
+app.get("/api/platform/users", auth, async (req: any, res) => {
+  if (!isPlatformAdmin(req.user))
+    return res.status(403).json({ message: "Platform administrator access is required." });
+
+  if (!persistentAuth) {
+    const d = get();
+    const activities = [
+      ...d.sales.map((sale) => ({
+        id: `sale-${sale.id}`,
+        userId: sale.sellerId,
+        userName: sale.sellerName,
+        businessName: d.business?.name || "Local workspace",
+        type: "sale",
+        detail: `${sale.number} · ${sale.total.toLocaleString("en-NG", { style: "currency", currency: "NGN" })}`,
+        createdAt: sale.createdAt,
+      })),
+      ...d.stockMovements.map((movement) => ({
+        id: `stock-${movement.id}`,
+        userId: movement.userId,
+        userName: movement.userName,
+        businessName: d.business?.name || "Local workspace",
+        type: "inventory",
+        detail: `${movement.type}: ${movement.productName}`,
+        createdAt: movement.createdAt,
+      })),
+    ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return res.json({
+      users: d.users.map(({ password: _password, ...user }) => ({
+        ...user,
+        businessName: d.business?.name || "Local workspace",
+        lastLoginAt: null,
+        lastActivityAt: activities.find((item) => item.userId === user.id)?.createdAt || null,
+      })),
+      activities: activities.slice(0, 200),
+    });
+  }
+
+  const [users, activities] = await Promise.all([
+    pool.query(`
+      SELECT u.id,trim(concat(u.first_name,' ',u.last_name)) name,u.email,u.status,
+             u.created_at "createdAt",u.last_login_at "lastLoginAt",o.name "businessName",
+             m.role,m.status "membershipStatus",latest.created_at "lastActivityAt"
+      FROM users u
+      LEFT JOIN organization_memberships m ON m.user_id=u.id
+      LEFT JOIN organizations o ON o.id=m.organization_id
+      LEFT JOIN LATERAL (
+        SELECT created_at FROM (
+          SELECT completed_at created_at FROM sales WHERE seller_id=u.id AND completed_at IS NOT NULL
+          UNION ALL SELECT occurred_at FROM stock_movements WHERE performed_by=u.id
+          UNION ALL SELECT created_at FROM expenses WHERE recorded_by=u.id
+          UNION ALL SELECT created_at FROM audit_events WHERE actor_id=u.id
+        ) activity ORDER BY created_at DESC NULLS LAST LIMIT 1
+      ) latest ON true
+      ORDER BY COALESCE(latest.created_at,u.last_login_at,u.created_at) DESC
+    `),
+    pool.query(`
+      SELECT * FROM (
+        SELECT 'sale-'||s.id id,s.seller_id "userId",trim(concat(u.first_name,' ',u.last_name)) "userName",
+               o.name "businessName",'sale' type,
+               'Completed sale #'||s.receipt_number||' · NGN '||trim(to_char(s.total,'FM999,999,999,990')) detail,
+               COALESCE(s.completed_at,s.created_at) "createdAt"
+        FROM sales s JOIN users u ON u.id=s.seller_id JOIN organizations o ON o.id=s.organization_id
+        UNION ALL
+        SELECT 'stock-'||sm.id,sm.performed_by,trim(concat(u.first_name,' ',u.last_name)),o.name,'inventory',
+               initcap(replace(sm.type::text,'_',' '))||': '||p.name||' ('||sm.quantity||')',sm.occurred_at
+        FROM stock_movements sm JOIN users u ON u.id=sm.performed_by JOIN organizations o ON o.id=sm.organization_id JOIN products p ON p.id=sm.product_id
+        UNION ALL
+        SELECT 'expense-'||e.id,e.recorded_by,trim(concat(u.first_name,' ',u.last_name)),o.name,'expense',
+               'Recorded expense: '||e.description||' · NGN '||trim(to_char(e.amount,'FM999,999,999,990')),e.created_at
+        FROM expenses e JOIN users u ON u.id=e.recorded_by JOIN organizations o ON o.id=e.organization_id
+        UNION ALL
+        SELECT 'audit-'||a.id,a.actor_id,COALESCE(trim(concat(u.first_name,' ',u.last_name)),'System'),COALESCE(o.name,'Platform'),'audit',
+               initcap(replace(a.action,'_',' '))||' · '||initcap(replace(a.entity_type,'_',' ')),a.created_at
+        FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id LEFT JOIN organizations o ON o.id=a.organization_id
+      ) activity ORDER BY "createdAt" DESC LIMIT 200
+    `),
+  ]);
+  res.json({ users: users.rows, activities: activities.rows });
 });
 app.post("/api/staff", auth, async (req: any, res) => {
   try {
